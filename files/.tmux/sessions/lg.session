@@ -8,7 +8,7 @@
 #----------------
 
 ## Load ZSH configuration
-source "$HOME/.zshrc"
+source "$HOME/.zsh/.zshrc"
 
 ## Session Attributes
 BASE_DIR="$SLG"
