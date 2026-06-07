@@ -1,5 +1,9 @@
 #!/bin/bash
 
+is_default_scanner_available() {
+  scanline -list | grep -q "$scanner_name"
+}
+
 main() {
   local output_name="$1"
   local output_resolution="$2"
@@ -12,8 +16,10 @@ main() {
 
   cd "$output_directory"
 
-  #scanline -scanner "$scanner_name" -flatbed -batch -resolution "$output_resolution" -dir "$output_directory" -name "$output_name"
-  scanline -flatbed -batch -resolution "$output_resolution" -dir "$output_directory" -name "$output_name"
+  local args=( -flatbed -batch -resolution "$output_resolution" -dir "$output_directory" -name "$output_name" )
+  is_default_scanner_available && args=( -scanner "$scanner_name" "${args[@]}" )
+
+  scanline "${args[@]}"
 }
 
 main "$@"
