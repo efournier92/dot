@@ -1,0 +1,103 @@
+#!/bin/bash
+
+#----------------
+# Name          : docker_rebuild
+# Description   : Purges docker and rebuilds the app in the current directory
+# Author        : E Fournier
+# Dependencies  : docker
+# Example Usage : ./docker_rebuild
+#----------------
+
+print_line() {
+  echo "--------"
+}
+
+stop_containers() {
+  print_line
+  echo "STOPPING DOCKER CONTAINERS"
+  print_line
+  docker stop $(docker ps -a -q)
+}
+
+delete_containers() {
+  stop_containers
+  print_line
+  echo "DELETING DOCKER CONTAINERS"
+  print_line
+  docker rm -vf $(docker ps -aq)
+}
+
+delete_images() {
+  print_line
+  echo "DELETING DOCKER IMAGES"
+  print_line
+  docker rmi -f $(docker images -aq)
+}
+
+delete_volumes() {
+  print_line
+  echo "DELETING DOCKER VOLUMES"
+  print_line
+  docker volume rm $(docker volume ls -q --filter dangling=true)
+  print_line
+}
+
+delete_all() {
+  delete_containers
+  delete_images
+  delete_volumes
+}
+
+clean() {
+  local mode="$1"
+
+  if [[ "$mode" =~ "c" ]]; then
+    delete_containers
+  else
+    delete_all
+  fi
+}
+
+pull_latest_by_project() {
+  local project="$1"
+
+  cd "$project"
+
+  echo "---------------" >&2
+  echo "PULLING LATEST: $project" >&2
+  echo "---------------" >&2
+
+  git pull
+
+  cd ..
+}
+
+pull_latest_repos() {
+  cd ..
+
+  pull_latest_by_project "execution-service"
+  pull_latest_by_project "market-data-service"
+  pull_latest_by_project "cib_execution"
+  pull_latest_by_project "rebalancing-service"
+  pull_latest_by_project "web-app"
+  pull_latest_by_project "backend-service"
+  
+  cd "backend-service"
+}
+
+main() {
+  pull_latest_repos
+
+  clean
+
+  make build
+
+  clean "c"
+
+  bundle exec rake db:setup
+
+  make up
+}
+
+main "$@"
+

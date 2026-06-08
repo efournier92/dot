@@ -1,0 +1,56 @@
+#!/bin/zsh
+
+#----------------
+# Name          : ide.session
+# Description   : Launches a tmux session configured for IDE use case
+# Author        : E Fournier
+# Dependencies  : tmux, zsh, vim
+#----------------
+
+## Load ZSH configuration
+
+source "$HOME/.zsh/.zshrc"
+
+## Session Attributes
+
+SESSION_NAME="$1"
+DEV_DIR="$CS/Savvy"
+PROJECT_DIR="$DEV_DIR/web-app"
+
+## Check if session already exists
+
+tmux has-session -t "$SESSION_NAME" 2>/dev/null
+
+## New Session
+
+if [[ "$?" -eq 1 ]] ; then
+  ## Window 1
+
+  ### Left Pane - nvim | Right Pane - claude
+
+  tmux new -s "$SESSION_NAME" -d -c "$PROJECT_DIR"
+  tmux split-window -h -p 35 -t "$SESSION_NAME:0.0" -c "$PROJECT_DIR"
+  tmux send-keys -t "$SESSION_NAME:0.0" "nvim" Enter
+  tmux send-keys -t "$SESSION_NAME:0.1" "claude" Enter
+  tmux select-pane -t "$SESSION_NAME:0.1"
+
+  ## Window 2
+
+  ### Left Pane (50%) - make rails | Right Pane (50%) - make console
+
+  tmux new-window -t "$SESSION_NAME:1" -c "$PROJECT_DIR"
+  #tmux split-window -h -p 50 -t "$SESSION_NAME:1.0" -c "$PROJECT_DIR"
+  #tmux send-keys -t "$SESSION_NAME:1.0" "make rails"
+  #tmux send-keys -t "$SESSION_NAME:1.1" "make console"
+fi
+
+## Attach to session
+
+tmux select-window -t "$SESSION_NAME:0"
+tmux select-pane -t "$SESSION_NAME:0.1"
+tmux attach -t "$SESSION_NAME"
+
+## Switch to session
+
+tmux switch-client -t "$SESSION_NAME" &
+
