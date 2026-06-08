@@ -1,0 +1,10 @@
+<% root_dir = ENV['SLG'] %>
+
+name: LG
+root: <%= root_dir %>
+
+windows:
+  - Lg:
+      layout: main-vertical
+      panes:
+        - clear; $ZSCRIPTS/lg/lg_open

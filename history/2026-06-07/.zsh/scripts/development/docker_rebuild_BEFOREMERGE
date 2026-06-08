@@ -1,0 +1,66 @@
+#!/bin/bash
+
+#----------------
+# Name          : docker_rebuild
+# Description   : Purges docker and rebuilds the app in the current directory
+# Author        : E Fournier
+# Dependencies  : docker_clean
+# Example Usage : ./docker_rebuild
+#----------------
+
+pull_latest_by_project() {
+  local project="$1"
+
+  cd "$project"
+
+  echo "---------------" >&2
+  echo "PULLING LATEST: $project" >&2
+  echo "---------------" >&2
+
+  git pull
+
+  cd ..
+}
+
+pull_latest_repos() {
+  cd ..
+
+  pull_latest_by_project "backend-service"
+  pull_latest_by_project "web-app"
+  pull_latest_by_project "portfolio-valuation-service"
+  pull_latest_by_project "order-execution-service"
+  pull_latest_by_project "website"
+  #pull_latest_by_project "cib_execution"
+  #pull_latest_by_project "exchange-sim"
+  #pull_latest_by_project "etl"
+  #pull_latest_by_project "execution-service"
+  #pull_latest_by_project "market-data-service"
+  
+  cd "backend-service"
+}
+
+stop_all_containers() {
+  docker stop $(docker ps -a -q)
+}
+
+main() {
+  pull_latest_repos
+
+  $ZSCRIPTS/development/docker_clean
+
+  make build
+
+  $ZSCRIPTS/development/docker_clean "c"
+
+  #bundle exec rake db:setup
+
+  # Not everything will remain running after the 1st `up`
+  make up &
+  sleep 90
+  stop_all_containers
+
+  make up
+}
+
+main "$@"
+

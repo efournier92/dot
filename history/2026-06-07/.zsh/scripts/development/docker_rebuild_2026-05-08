@@ -1,0 +1,121 @@
+#!/bin/bash
+
+#----------------
+# Name          : docker_rebuild
+# Description   : Purges docker and rebuilds the app in the current directory
+# Author        : E Fournier
+# Dependencies  : docker_clean
+# Example Usage : ./docker_rebuild
+#----------------
+
+print_line() {
+  echo "--------" >&2
+}
+
+print_header() {
+  local message="$1"
+
+  print_line
+  echo "$message" >&2
+  print_line
+}
+
+stop_all_containers() {
+  print_header "STOPPING DOCKER CONTAINERS"
+  docker stop $(docker ps -a -q)
+}
+
+delete_containers() {
+  stop_all_containers
+  print_header "DELETING DOCKER CONTAINERS"
+  docker rm -vf $(docker ps -aq)
+}
+
+delete_images() {
+  print_header "DELETING DOCKER IMAGES"
+  docker rmi -f $(docker images -aq)
+}
+
+delete_volumes() {
+  print_header "DELETING DOCKER VOLUMES"
+  docker volume rm $(docker volume ls -q --filter dangling=true)
+  print_line
+}
+
+delete_all() {
+  delete_containers
+  delete_images
+  delete_volumes
+}
+
+docker_clean() {
+  local mode="$1"
+
+  if [[ "$mode" =~ "c" ]]; then
+    delete_containers
+  else
+    delete_all
+  fi
+}
+
+clear_rails_schema() {
+  rm "db/schema.rb"
+  rm "db/cache_schema.rb"
+}
+
+initialize_via_make_up() {
+  print_header "RUNNING INITIAL MAKE UP"
+  # Not everything will remain running after the initial `make_up`
+  # Initialize, then stop the containers again
+  make up &
+  # Wait 4 minutes for everything to initialize
+  sleep 240
+
+  print_header "STOPPING CONTAINERS AFTER INITIAL MAKE UP"
+  stop_all_containers
+}
+
+pull_latest_by_project() {
+  local project="$1"
+
+  cd "$project"
+
+  echo "---------------" >&2
+  echo "PULLING LATEST: $project" >&2
+  echo "---------------" >&2
+
+  git pull
+
+  cd ..
+}
+
+pull_latest_repos() {
+  cd ..
+
+  pull_latest_by_project "backend-service"
+  pull_latest_by_project "web-app"
+  pull_latest_by_project "portfolio-valuation-service"
+  pull_latest_by_project "order-execution-service"
+  pull_latest_by_project "website"
+  
+  cd "backend-service"
+}
+
+main() {
+  pull_latest_repos
+
+  clear_rails_schema
+
+  docker_clean
+
+  make build
+
+  docker_clean "c"
+
+  initialize_via_make_up
+
+  make up
+}
+
+main "$@"
+

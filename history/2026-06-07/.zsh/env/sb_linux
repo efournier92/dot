@@ -1,0 +1,37 @@
+#!/bin/zsh
+
+#----------------
+# Name          : sb_linux
+# Description   : Shell-environment configuration for SB build on Linux
+# Author        : E Fournier
+# Dependencies  : zsh
+#----------------
+
+## File system
+
+### Bnk directory
+
+export BNK="$HOME/bnk"
+
+### Start directory
+
+export START="$BNK"
+
+### Add ~/bin to PATH                                                                                                                                            
+
+export PATH="$HOME/bin:$PATH"    
+
+## Tools
+
+### Snc
+
+#### Enable unison
+
+export AUTO_SNC_ENABLED=false
+
+## Resources
+
+### Linux common
+
+source "$ZENV/linux_common"
+
