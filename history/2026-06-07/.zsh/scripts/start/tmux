@@ -1,4 +1,0 @@
-#!/bin/zsh
-
-/bin/zsh -l -i -c 'while true; do tmuxinator start HOME >/dev/null 2>&1; done'
-
