@@ -1,0 +1,14 @@
+<% work_dir = ENV['SWORK'] %>
+
+name: NTE
+root: <%= work_dir %>
+
+windows:
+  - Notes:
+      root: <%= work_dir %>/Notes
+      panes:
+        - vim
+  - Tickets:
+      root: <%= work_dir %>/Tickets
+      panes:
+        - vim

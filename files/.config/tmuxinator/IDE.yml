@@ -1,0 +1,11 @@
+<% root_dir = ENV['CS'] %>
+<% flows_dir = ENV['BNK'] %>
+
+name: IDE
+root: <%= root_dir %>
+
+windows:
+  - Cs:
+      root: <%= root_dir %>
+  - Flows:
+      root: <%= flows_dir %>/flows

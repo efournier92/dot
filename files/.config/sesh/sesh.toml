@@ -1,0 +1,4 @@
+[default]
+# Include Tmuxinator Profiles In Search List
+import_tmuxinator = true
+

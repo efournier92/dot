@@ -1,0 +1,19 @@
+<% home_dir = ENV['HOME'] %>
+<% code_dir = ENV['CSS'] %>
+
+name: DOCK
+root: <%= code_dir %>/backend-service
+
+windows:
+  - Dock:
+      root: <%= code_dir %>/backend-service
+      panes:
+        - make up
+  - Aws:
+      root: <%= home_dir %>/.aws
+      panes:
+        -
+  - LLM Usage:
+      root: <%= code_dir %>/backend-service
+      panes:
+        - claude /usage
