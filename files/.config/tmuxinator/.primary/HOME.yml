@@ -1,0 +1,8 @@
+<% start_dir = ENV['START'] %>
+
+name: HOME
+root: <%= start_dir %>
+
+windows:
+  - Shell:
+      root: <%= start_dir %>
