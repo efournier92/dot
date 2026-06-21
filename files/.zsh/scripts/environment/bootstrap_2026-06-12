@@ -1,0 +1,398 @@
+#!/usr/bin/env zsh
+# bootstrap.zsh — initialize a fresh macOS machine in a single command.
+# See ./Requirements.md for the full spec.
+#
+# Layout (bottom-up cascade): main "$@" → main() → phase functions → leaf helpers.
+
+emulate -L zsh
+setopt no_unset
+
+# Pin $HOME at script start so all subsequent path computations resolve
+# consistently. Bail loudly if $HOME is unset or empty (should never
+# happen on a normal macOS user shell, but be defensive).
+if [[ -z "$HOME" ]]; then
+  print -P "%F{red}[x]%f HOME is not set — cannot determine target paths" >&2
+  exit 1
+fi
+export HOME
+typeset -r HOME
+
+# -----------------------------------------------------------------------------
+# Configuration data
+# -----------------------------------------------------------------------------
+typeset -a TAPS=(
+  joshmedeski/sesh
+)
+
+typeset -a FORMULAS=(
+  asdf
+  eza
+  fzf
+  gh
+  git-delta
+  sesh
+  lazygit
+  lazysql
+  neovim
+  ripgrep
+  starship
+  tmuxinator
+  unison
+)
+
+typeset -a CASKS=(
+  ghostty
+  macvim
+)
+
+readonly DOTFILES_REPO=efournier92/dot
+readonly DOTFILES_DIR="$HOME/bnk/cs/dot"
+readonly DOTFILES_SRC="$DOTFILES_DIR/files"
+readonly ENV_NAME_FILE="$DOTFILES_SRC/.env_name"
+
+# -----------------------------------------------------------------------------
+# # --- Misc ---
+# -----------------------------------------------------------------------------
+on_apple_silicon() {
+  [[ "$(uname -m)" == "arm64" ]]
+}
+
+# Locate brew at its well-known install paths.
+find_brew() {
+  local candidate
+  for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
+    if [[ -x "$candidate" ]]; then
+      print -r -- "$candidate"
+      return 0
+    fi
+  done
+  if command -v brew >/dev/null 2>&1; then
+    command -v brew
+    return 0
+  fi
+  return 1
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+require_command() {
+  if ! command_exists "$1"; then
+    log_err "required command '$1' not found on PATH"
+    return 1
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# # --- Logging ---
+# -----------------------------------------------------------------------------
+log_info() { print -P "%F{cyan}[*]%f $1"; }
+log_ok()   { print -P "%F{green}[+]%f $1"; }
+log_warn() { print -P "%F{yellow}[!]%f $1" >&2; }
+log_err()  { print -P "%F{red}[x]%f $1" >&2; }
+
+# -----------------------------------------------------------------------------
+# # --- Brew helpers ---
+# -----------------------------------------------------------------------------
+# `brew` may resolve via find_brew on a fresh Apple Silicon install where
+# /opt/homebrew/bin is not yet on PATH for the parent shell.
+brew() {
+  local brew_bin
+  brew_bin="$(find_brew)" || {
+    log_err "brew binary not found"
+    return 127
+  }
+  "$brew_bin" "$@"
+}
+
+brew_install_if_missing() {
+  local name="$1"
+  if brew list --formula "$name" >/dev/null 2>&1; then
+    log_info "brew formula '$name' already installed"
+    return 0
+  fi
+  log_info "installing brew formula '$name'"
+  if ! brew install "$name"; then
+    log_warn "failed to install brew formula '$name' — continuing"
+    return 1
+  fi
+  log_ok "installed brew formula '$name'"
+}
+
+brew_cask_install_if_missing() {
+  local name="$1"
+  if brew list --cask "$name" >/dev/null 2>&1; then
+    log_info "brew cask '$name' already installed"
+    return 0
+  fi
+  log_info "installing brew cask '$name'"
+  log_warn "first cask install may prompt for sudo / privacy permissions"
+  if ! brew install --cask "$name"; then
+    log_warn "failed to install brew cask '$name' — continuing"
+    return 1
+  fi
+  log_ok "installed brew cask '$name'"
+}
+
+brew_tap_if_missing() {
+  local tap="$1"
+  if brew tap-info "$tap" >/dev/null 2>&1; then
+    log_info "tap '$tap' already present"
+    _brew_trust_tap "$tap"
+    return 0
+  fi
+  log_info "tapping '$tap'"
+  if ! brew tap "$tap"; then
+    log_warn "failed to tap '$tap' — continuing"
+    return 1
+  fi
+  log_ok "tapped '$tap'"
+  _brew_trust_tap "$tap"
+}
+
+# Best-effort tap trust (modern flag first, then legacy fallback).
+_brew_trust_tap() {
+  local tap="$1"
+  if brew tap --trust "$tap" >/dev/null 2>&1; then
+    log_info "trusted tap '$tap' (via 'brew tap --trust')"
+    return 0
+  fi
+  if brew trust "$tap" >/dev/null 2>&1; then
+    log_info "trusted tap '$tap' (via 'brew trust')"
+    return 0
+  fi
+  log_warn "could not auto-trust tap '$tap' — formulae on it may be ignored"
+  log_warn "fix with: brew tap --trust $tap  (or: brew trust $tap)"
+  return 1
+}
+
+# -----------------------------------------------------------------------------
+# # --- IO helpers ---
+# -----------------------------------------------------------------------------
+read_env_name_choices() {
+  local file="$1"
+  local line
+  # Print each choice on its own line. The caller splits on newlines with
+  # the (@f) flag in "${(@f)$(read_env_name_choices "$file")}".
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line## }"
+    line="${line%% }"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    print -r -- "$line"
+  done < "$file"
+}
+
+prompt_menu() {
+  local prompt="$1"; shift
+  local -a items=("$@")
+  local -i count=${#items}
+  local selection
+  # All menu rendering goes to stderr so that command substitution
+  # `$(prompt_menu ...)` only captures the chosen value on stdout.
+  while true; do
+    print -P "%F{cyan}[?]%f $prompt" >&2
+    local -i idx
+    for (( idx = 1; idx <= count; idx++ )); do
+      print "  $idx) ${items[$idx]}" >&2
+    done
+    printf "Select [1-%d] (Enter to redisplay): " "$count" >&2
+    if ! read -r selection; then
+      # EOF (Ctrl-D) or read error — treat as abort.
+      print "" >&2
+      return 1
+    fi
+    # Empty input: re-render the menu without warning.
+    [[ -z "$selection" ]] && continue
+    if [[ "$selection" =~ '^[0-9]+$' ]] && (( selection >= 1 && selection <= count )); then
+      print -r -- "${items[$selection]}"
+      return 0
+    fi
+    log_warn "invalid selection '$selection' — enter a number between 1 and $count"
+  done
+}
+
+replace_first_line() {
+  local file="$1"
+  local value="$2"
+  local tmp
+  tmp="$(mktemp)" || return 1
+  {
+    print -r -- "$value"
+    tail -n +2 "$file"
+  } > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$file"
+}
+
+rsync_dotfiles_to_home() {
+  if [[ ! -d "$DOTFILES_SRC" ]]; then
+    log_warn "dotfiles source not found at $DOTFILES_SRC — skipping mirror"
+    return 1
+  fi
+  log_info "mirroring $DOTFILES_SRC → $HOME/"
+  if ! rsync -a \
+        --exclude=.git \
+        --exclude=.DS_Store \
+        --exclude='*.swp' \
+        "$DOTFILES_SRC/" "$HOME/"; then
+    log_warn "rsync failed — continuing"
+    return 1
+  fi
+  log_ok "dotfiles mirrored to $HOME"
+}
+
+# -----------------------------------------------------------------------------
+# Top-level phases
+# -----------------------------------------------------------------------------
+bootstrap_xcode_clt() {
+  if xcode-select -p >/dev/null 2>&1; then
+    log_info "Xcode Command Line Tools already installed"
+    return 0
+  fi
+  log_warn "Xcode Command Line Tools missing — launching GUI installer"
+  log_warn "watch for the system prompt and complete the install"
+  xcode-select --install || true
+  # Poll for completion so the rest of the script runs in one shot.
+  local -i attempt=0
+  local -r max_attempts=120  # ~10 minutes at 5s intervals
+  while (( attempt < max_attempts )); do
+    if xcode-select -p >/dev/null 2>&1; then
+      log_ok "Xcode Command Line Tools installed"
+      return 0
+    fi
+    (( attempt++ ))
+    sleep 5
+  done
+  log_err "Xcode CLT install did not complete in time — re-run $0 after it finishes"
+  exit 1
+}
+
+bootstrap_homebrew() {
+  if find_brew >/dev/null 2>&1; then
+    log_info "Homebrew already installed"
+    return 0
+  fi
+  log_info "installing Homebrew (a sudo prompt may appear)"
+  log_warn "the installer may ask for your password and may take several minutes"
+  if ! /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+    log_err "Homebrew installer returned non-zero"
+    exit 1
+  fi
+  if ! find_brew >/dev/null 2>&1; then
+    log_err "Homebrew install completed but brew binary not found"
+    exit 1
+  fi
+  # Make brew visible to subsequent commands in this script.
+  local brew_bin
+  brew_bin="$(find_brew)"
+  case "$brew_bin" in
+    /opt/homebrew/bin/brew) eval "$(/opt/homebrew/bin/brew shellenv)" ;;
+    /usr/local/bin/brew)     eval "$(/usr/local/bin/brew shellenv)" ;;
+  esac
+  log_ok "Homebrew installed at $brew_bin"
+}
+
+ensure_git_and_gh() {
+  if ! find_brew >/dev/null 2>&1; then
+    log_warn "brew not present — cannot pre-install git/gh"
+    return 1
+  fi
+  brew_install_if_missing git
+  brew_install_if_missing gh
+}
+
+install_brew_apps() {
+  if ! find_brew >/dev/null 2>&1; then
+    log_warn "brew not present — skipping app installs"
+    return 1
+  fi
+  log_info "running 'brew update'"
+  if ! brew update; then
+    log_warn "'brew update' failed — continuing with cached metadata"
+  fi
+  local tap
+  for tap in "${TAPS[@]}"; do
+    brew_tap_if_missing "$tap"
+  done
+  local formula
+  for formula in "${FORMULAS[@]}"; do
+    brew_install_if_missing "$formula"
+  done
+  local cask
+  for cask in "${CASKS[@]}"; do
+    brew_cask_install_if_missing "$cask"
+  done
+  log_info "running 'brew upgrade' (best-effort)"
+  if ! brew upgrade; then
+    log_warn "'brew upgrade' failed — continuing"
+  fi
+  log_ok "brew apps phase complete"
+}
+
+ensure_gh_authenticated() {
+  if ! command_exists gh; then
+    log_err "gh not available — cannot clone $DOTFILES_REPO"
+    return 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    log_err "gh is not authenticated — run 'gh auth login' then re-run $0"
+    return 1
+  fi
+}
+
+setup_dotfiles() {
+  if [[ ! -d "$DOTFILES_DIR" ]]; then
+    if ! ensure_gh_authenticated; then
+      exit 1
+    fi
+    log_info "cloning $DOTFILES_REPO → $DOTFILES_DIR"
+    mkdir -p "$(dirname "$DOTFILES_DIR")"
+    if ! gh repo clone "$DOTFILES_REPO" "$DOTFILES_DIR"; then
+      log_err "failed to clone $DOTFILES_REPO"
+      exit 1
+    fi
+    log_ok "cloned $DOTFILES_REPO"
+  else
+    log_info "dotfiles directory already present at $DOTFILES_DIR"
+  fi
+
+  if [[ ! -f "$ENV_NAME_FILE" ]]; then
+    log_warn "$ENV_NAME_FILE not found — skipping env_name selection"
+    rsync_dotfiles_to_home
+    return 0
+  fi
+
+  # $ENV_NAME_FILE = $HOME/bnk/cs/dot/files/.env_name (inside dot/files, not repo root)
+  local -a choices
+  choices=("${(@f)$(read_env_name_choices "$ENV_NAME_FILE")}")
+  if (( ${#choices} == 0 )); then
+    log_warn "no candidate env names found in $ENV_NAME_FILE — skipping selection"
+  else
+    local picked
+    picked="$(prompt_menu "Select env_name:" "${choices[@]}")" || {
+      log_err "env_name selection aborted"
+      exit 1
+    }
+    # Per spec: replace line 1 with the chosen value; the rest of the
+    # file (including the original line-1 entry, which becomes a
+    # duplicate) is preserved byte-for-byte.
+    replace_first_line "$ENV_NAME_FILE" "$picked"
+    log_ok "set env_name to '$picked'"
+  fi
+
+  rsync_dotfiles_to_home
+}
+
+# -----------------------------------------------------------------------------
+# main
+# -----------------------------------------------------------------------------
+main() {
+  bootstrap_xcode_clt
+  bootstrap_homebrew
+  ensure_git_and_gh
+  install_brew_apps
+  setup_dotfiles
+  log_ok "bootstrap complete"
+}
+
+main "$@"

@@ -1,0 +1,282 @@
+#!/bin/bash
+
+# system_update_macos by E Fournier — safely automates routine maintenance of macOS systems.
+
+# set -u + pipefail; set -e intentionally omitted to tolerate per-package failures.
+set -u
+set -o pipefail
+
+# CONFIGURATION
+LOG_DIR="${LOG_DIR:-$HOME/Library/Logs/system-update}"
+
+# Initialize state variables early (needed for `set -u`).
+LOG_FILE=""
+BREW_PRE=""; NPM_PRE=""; GEMS_PRE=""; RUST_PRE=""
+BREW_POST=""; NPM_POST=""; GEMS_POST=""; RUST_POST=""
+
+# HELPERS
+print_header() {
+  local header_title="$1"
+  echo
+  echo "-------------------------------"
+  echo "# $header_title"
+  echo "-------------------------------"
+}
+
+run_if_present() {
+  local check_cmd="$1"; shift
+  local header="$1"; shift
+  if ! command -v "$check_cmd" &>/dev/null; then
+    return 0
+  fi
+  print_header "$header"
+  "$@"
+}
+
+tool_version() {
+  local cmd="$1"
+  if command -v "$cmd" &>/dev/null; then
+    "$cmd" --version 2>/dev/null | head -n 1 || echo "unknown"
+  else
+    echo "not installed"
+  fi
+}
+
+# SETUP
+init_logging() {
+  mkdir -p "$LOG_DIR"
+  LOG_FILE="$LOG_DIR/system_update_$(date +%F_%H%M%S).log"
+  exec > >(tee -a "$LOG_FILE") 2>&1
+  echo "=== System update started at $(date) ==="
+  echo "=== Log file: $LOG_FILE ==="
+  echo
+}
+
+require_not_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "ERROR: Do not run this script as root. It uses 'sudo' internally for individual privileged commands."
+    exit 1
+  fi
+}
+
+require_brew() {
+  if ! command -v brew &>/dev/null; then
+    echo "ERROR: Homebrew is required. Install it from https://brew.sh first."
+    exit 1
+  fi
+}
+
+
+
+# PREFLIGHT
+run_preflight_checks() {
+  print_header "PREFLIGHT CHECKS"
+
+  if ping -c 1 -W 2 brew.sh &>/dev/null; then
+    echo "Network: reachable (brew.sh)"
+  else
+    echo "WARNING: Cannot reach brew.sh. Network updates will likely fail."
+  fi
+}
+
+record_pre_update_versions() {
+  print_header "PRE-UPDATE VERSIONS"
+  BREW_PRE=$(tool_version brew)
+  NPM_PRE=$(tool_version npm)
+  GEMS_PRE=$(tool_version gem)
+  RUST_PRE=$(tool_version rustc)
+  echo "brew:   $BREW_PRE"
+  echo "npm:    $NPM_PRE"
+  echo "gem:    $GEMS_PRE"
+  echo "rustc:  $RUST_PRE"
+}
+
+# PACKAGE MANAGERS
+update_homebrew() {
+  print_header "BREW UPDATE"
+  brew update
+
+  print_header "BREW UPGRADE (FORMULAE)"
+  brew upgrade
+
+  print_header "BREW UPGRADE (CASKS)"
+  echo "Note: cask upgrades may quit running apps (browsers, etc)."
+  brew upgrade --cask
+
+  print_header "BREW AUTOREMOVE"
+  brew autoremove
+
+  print_header "BREW CLEANUP"
+  brew cleanup
+
+  print_header "BREW DOCTOR"
+  brew doctor
+
+  print_header "BREW MISSING"
+  brew missing
+}
+
+check_macos_software_update() {
+  print_header "SYSTEM SOFTWARE UPDATE"
+  softwareupdate -l 2>/dev/null
+  echo
+  echo "Run 'softwareupdate -ia' to install available updates."
+  echo "Some updates (XProtect, MRT, security data) require a manual reboot afterward."
+}
+
+update_app_store() {
+  run_if_present mas "APP STORE UPDATES" mas upgrade
+}
+
+# TOOLCHAINS
+update_asdf_plugins() {
+  if ! command -v asdf &>/dev/null; then
+    return 0
+  fi
+  print_header "ASDF PLUGIN UPDATE"
+  asdf plugin update --all
+
+  print_header "ASDF RESHIM"
+  asdf reshim
+}
+
+update_ruby_gems() {
+  if ! command -v gem &>/dev/null; then
+    return 0
+  fi
+  print_header "GEM UPDATE"
+  echo "Note: not self-upgrading RubyGems — can break bundler and other gems."
+  echo "Note: not running 'gem cleanup' — removing old versions can break projects pinned to them."
+  gem update
+}
+
+
+
+update_pipx_tools() {
+  run_if_present pipx "PIPX UPGRADE ALL" pipx upgrade-all
+}
+
+update_rust_toolchains() {
+  run_if_present rustup "RUSTUP UPDATE" rustup update
+}
+
+update_cargo_installs() {
+  run_if_present cargo-install-update "CARGO INSTALL-UPDATE" cargo install-update -a
+}
+
+update_composer_globals() {
+  run_if_present composer "COMPOSER GLOBAL UPDATE" composer global update
+}
+
+# SYSTEM HYGIENE
+check_rosetta() {
+  print_header "ROSETTA 2 CHECK"
+  if [ "$(uname -m)" = "arm64" ]; then
+    if /usr/bin/pgrep -q oahd 2>/dev/null; then
+      echo "Rosetta 2: installed and running"
+    else
+      echo "Rosetta 2: not installed. Run 'softwareupdate --install-rosetta --agree-to-license' to install."
+    fi
+  else
+    echo "Rosetta 2: not applicable (Intel Mac)"
+  fi
+}
+
+# USER ACTIONS
+maybe_empty_trash() {
+  print_header "EMPTY TRASH"
+  local trash_size
+  trash_size=$(du -sh "$HOME/.Trash" 2>/dev/null | cut -f1)
+  if [ -z "$trash_size" ] || [ "$trash_size" = "0B" ]; then
+    echo "Trash is empty."
+    return 0
+  fi
+  echo "Trash size: $trash_size"
+  local reply=""
+  read -r -p "Empty Trash? [y/N] " reply || true
+  if [[ "${reply:-}" =~ ^[Yy]$ ]]; then
+    osascript -e 'tell application "Finder" to empty trash'
+    echo "Trash emptied."
+  else
+    echo "Trash preserved."
+  fi
+}
+
+backup_brewfile() {
+  print_header "BREWFILE BACKUP"
+  local brewfile="$HOME/.homebrew/Brewfile.$(date +%F)"
+  if brew bundle dump --describe --force --file="$brewfile" >/dev/null 2>&1; then
+    echo "Brewfile written to: $brewfile"
+  else
+    echo "Brewfile dump failed — continuing."
+  fi
+}
+
+refresh_font_cache() {
+  run_if_present fc-cache "FONT CACHE REFRESH" fc-cache -fv
+}
+
+clean_unison_backups() {
+  # User has confirmed removing all Unison backup files (~/.unison/backup/*) is intentional.
+  print_header "CLEAN UNISON BACKUPS"
+  rm -rfv "$HOME/.unison/backup"
+}
+
+# REPORTING
+record_post_update_versions() {
+  print_header "POST-UPDATE VERSIONS"
+  BREW_POST=$(tool_version brew)
+  NPM_POST=$(tool_version npm)
+  GEMS_POST=$(tool_version gem)
+  RUST_POST=$(tool_version rustc)
+  echo "brew:   $BREW_PRE  →  $BREW_POST"
+  echo "npm:    $NPM_PRE   →  $NPM_POST"
+  echo "gem:    $GEMS_PRE  →  $GEMS_POST"
+  echo "rustc:  $RUST_PRE  →  $RUST_POST"
+}
+
+report_disk_usage() {
+  print_header "USAGE > DISK"
+  df -h
+}
+
+print_done() {
+  print_header "DONE"
+  echo "System update completed at $(date)"
+  echo "Full log: $LOG_FILE"
+}
+
+# MAIN
+main() {
+  init_logging
+  require_not_root
+  require_brew
+
+  run_preflight_checks
+  record_pre_update_versions
+
+  update_homebrew
+  check_macos_software_update
+  update_app_store
+
+  update_asdf_plugins
+  update_ruby_gems
+  update_pipx_tools
+  update_rust_toolchains
+  update_cargo_installs
+  update_composer_globals
+
+  check_rosetta
+
+  maybe_empty_trash
+  backup_brewfile
+  refresh_font_cache
+  clean_unison_backups
+
+  record_post_update_versions
+  report_disk_usage
+  print_done
+}
+
+main "$@"
+

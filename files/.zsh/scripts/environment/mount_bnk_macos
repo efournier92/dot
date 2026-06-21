@@ -1,0 +1,52 @@
+#!/bin/bash
+
+#----------------
+# Name          : mount_bnk
+# Description   : Prompt for password and mount the encrypted BNK APFS volume at ~/mnt/bnk
+# Author        : E Fournier
+# Dependencies  : None (macOS only)
+# Example Usage : ./mount_bnk
+#----------------
+
+set -euo pipefail
+
+readonly VOLUME_LABEL="BNK"
+readonly MOUNTPOINT="$HOME/mnt/bnk"
+
+error() {
+  echo "Error: $1" >&2
+}
+
+# Already mounted?
+if mount | grep -qF "$MOUNTPOINT"; then
+  echo "Already mounted at $MOUNTPOINT"
+  exit 0
+fi
+
+mkdir -p "$MOUNTPOINT"
+
+# Already unlocked? Just mount at our preferred point.
+if diskutil info "$VOLUME_LABEL" 2>/dev/null | grep -q "Locked:.*No"; then
+  diskutil mount -mountPoint "$MOUNTPOINT" "$VOLUME_LABEL" >/dev/null 2>&1
+  echo "Mounted to $MOUNTPOINT"
+  exit 0
+fi
+
+# Locked — prompt for password with retries
+for attempt in 1 2 3; do
+  printf "Password: "
+  read -rs PASSWORD
+  echo
+  [[ -z "$PASSWORD" ]] && exit 0
+
+  if printf "%s" "$PASSWORD" | diskutil apfs unlockVolume "$VOLUME_LABEL" -stdinpassphrase -nomount >/dev/null 2>&1; then
+    diskutil mount -mountPoint "$MOUNTPOINT" "$VOLUME_LABEL" >/dev/null 2>&1
+    echo "Mounted to $MOUNTPOINT"
+    exit 0
+  fi
+
+  echo "Wrong password." >&2
+done
+
+error "Failed to unlock after 3 attempts."
+exit 1

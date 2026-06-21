@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 #----------------
-# Name          : work_mac_m3
+# Name          : work_mac_silicon
 # Description   : Shell-environment configuration for Work build in a MacOS Work environment with an M3 chip.
 # Author        : E Fournier
 # Dependencies  : zsh
@@ -91,58 +91,17 @@ export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"
 
 alias vlc='/Applications/VLC.app/Contents/MacOS/VLC'
 
-## Tmux
+## Llm
 
-### Session Names
-
-#### Notes
-
-export TSESSION_NOTES="notes_sav"
-
-#### Ide
-
-export TSESSION_IDE="ide_sav"
-
-### PostgreSQL
-
-# export PGPATH="/usr/local/opt/postgresql@12/bin"
-
-# export LDFLAGS="-L/usr/local/opt/postgresql@12/lib"
-
-# export CPPFLAGS="-I/usr/local/opt/postgresql@12/include"
-
-# export PKG_CONFIG_PATH="/usr/local/opt/postgresql@12/lib/pkgconfig"
-
-### Ruby
-
-# export RB_ENV_PATH="$HOME/.rbenv/shims:$HOME/.rbenv/bin"
-
-# export PATH="$RB_ENV_PATH:$PGPATH:$PATH"
-
-# export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-
-# export MAX_THREADS=4
-
-### Tmux
-
-#### Open a Debug shell using Overmind
-
-#alias overmind_debug_web="tmux splitw -v -p 100 'sleep 1; overmind connect web' & overmind start -f Procfile.dev"
-
-#alias overmind_debug_test="tmux splitw -v -p 100 'sleep 1; overmind connect web' & overmind start -f Procfile.test"
+alias lm="claude"
 
 ### Vim
-
-#### Ensure usage of the correct CTags version
-
-#alias ctags="`brew --prefix`/bin/ctags"
 
 ### Scripts
 
 alias agile_ticket_create="$ZSCRIPTS/development/agile_ticket_create"
 alias docker_clean="$ZSCRIPTS/development/docker_clean"
 alias docker_rebuild="$ZSCRIPTS/development/docker_rebuild"
-alias graphql_watch="yarn graphql:generate:watch"
 alias killme="$USCRIPTS/km"
 graphql_generate() {
   local last_dir="$(pwd)"
