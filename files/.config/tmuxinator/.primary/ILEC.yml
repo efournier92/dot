@@ -1,0 +1,15 @@
+<% root_dir = ENV['CS'] %>
+
+name: ILEC
+root: <%= root_dir %>/lecoursville
+
+windows:
+  - Serve:
+      panes:
+        - npm start
+  - Llm:
+      panes:
+        - opencode
+  - Ide:
+      panes:
+        - nvim .
