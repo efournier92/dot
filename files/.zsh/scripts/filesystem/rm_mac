@@ -1,0 +1,37 @@
+#!/bin/zsh
+
+#----------------
+# Name          : rm_mac
+# Description   : Safe-delete wrapper that routes `rm` to macOS Trash.
+#                 Strips flags, falls through to real rm when no paths
+#                 are given (so `rm --help` etc. still work). Designed
+#                 to be sourced and then aliased as `rm`.
+# Author        : E Fournier
+# Dependencies  : trash (brew install macos-trash); falls back to
+#                 /usr/bin/trash (Apple built-in on macOS 15+).
+# Example Usage : source "$ZFS/rm_mac"  &&  alias rm='rm_mac'
+#----------------
+
+## Backend resolution: prefer macos-trash, fall back to Apple built-in.
+command -v trash >/dev/null 2>&1 || alias trash='/usr/bin/trash'
+
+rm_mac() {
+  emulate -L zsh
+  local -a paths=()
+  local arg
+  for arg in "$@"; do
+    [[ $arg != -* ]] && paths+=("$arg")
+  done
+  if (( ${#paths[@]} )); then
+    # macos-trash has no `--` end-of-options separator; prefix any path
+    # starting with `-` with `./` so it isn't misread as a flag.
+    local p out=()
+    for p in "${paths[@]}"; do
+      [[ $p == -* ]] && p="./$p"
+      out+=("$p")
+    done
+    command trash "${out[@]}"
+  else
+    command rm "$@"   # no paths -> defer to real rm for --help, etc.
+  fi
+}

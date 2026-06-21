@@ -135,7 +135,7 @@ set shortmess+=I
 
 """ Global color scheme (from $HOME/.vim/colors)
 
-colorscheme hybrid_material
+colorscheme kanagawa
 
 """ Background color
 
@@ -246,7 +246,7 @@ nnoremap <Leader>t :ThesaurusQueryReplaceCurrentWord<CR>
 
 "" Leader Key
 
-let mapleader = '\'
+let mapleader = ' '
 
 "" Tabs
 
@@ -314,36 +314,6 @@ vnoremap <leader>d64 :'<,'>!python -m base64 -d<CR>
 
 nnoremap <leader>cd :cd %:p:h<CR>
 
-"" HTML
-
-""" Create tag
-
-noremap <Leader>hcl I<!-- <ESC>A --><ESC>
-
-""" Comment line
-
-noremap <Leader>hcl I<!-- <ESC>A --><ESC>
-
-""" Uncomment line
-
-noremap <Leader>hul ^df <ESC>$F D
-
-""" Comment tag
-
-noremap <Leader>hct vat<ESC>`<I<!--<ESC>`>A--><ESC>
-
-""" Uncomment tag
-
-noremap <Leader>hut vat<ESC>`<^xxxx`>$xxx<ESC>
-
-""" Rename a variable locally to block
-
-nmap <Leader>rn :%s/<C-R><C-W>/<C-R><C-W>/g<left><left>
-
-""" Prettify HTML
-
-noremap <Leader>ph :!tidy -mi -xml -wrap 0 %<CR>
-
 "" Snippets
 
 """ Lg
@@ -352,22 +322,6 @@ let lg_maps = $LMAPS . "/mappings_lg.vim"
 if filereadable(lg_maps)
   exe "source " . lg_maps
 endif
-
-""" HTML skeleton
-
-noremap <Leader>html :-1read $VSNIPS/html_skeleton.html<CR>5jf>a
-
-""" shUnit test
-
-noremap <Leader>btest :-1read $VSNIPS/bash_shunit_test.bash<CR>ea
-
-""" Bash header
-
-noremap <Leader>bhead :-1read $VSNIPS/bash_header.bash<CR>ea
-
-""" Bash null check
-
-noremap <Leader>bnull :-1read $VSNIPS/bash_nullcheck.bash<CR>ea
 
 "" Functions
 
@@ -406,7 +360,7 @@ endfunction
 """ Insert ticket link
 
 function! InsertTicketLink()
-  let l:default = 'BAC-'
+  let l:default = 'SPM-'
   let l:input = input('ID: ', l:default)
   if !empty(l:input)
     let l:link = printf('[%s](https://savvylabs.atlassian.net/browse/%s)', l:input, l:input)
@@ -430,21 +384,15 @@ endif
 call plug#begin()
   Plug 'airblade/vim-gitgutter'
   Plug 'andymass/vim-matchup'
-  Plug 'brooth/far.vim'
-  Plug 'editorconfig/editorconfig-vim'
   Plug 'gabrielelana/vim-markdown'
   Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
   Plug 'junegunn/fzf.vim'
-  Plug 'leafOfTree/vim-vue-plugin'
-  Plug 'MattesGroeger/vim-bookmarks'
-  Plug 'ngmy/vim-rubocop'
   Plug 'preservim/nerdtree'
   Plug 'Ron89/thesaurus_query.vim'
   Plug 'tpope/vim-fugitive'
   Plug 'tpope/vim-commentary'
   Plug 'tpope/vim-rails'
-  Plug 'thoughtbot/vim-rspec'
-  Plug 'yegappan/taglist'
+  Plug 'tpope/vim-bundler'
 call plug#end()
 
 "" File Trees
@@ -459,20 +407,6 @@ set cmdheight=1
 
 nnoremap <silent> <Leader>et :NERDTreeToggle<cr>
 nnoremap <silent> <Leader>ef :NERDTreeFind<cr>
-
-""" Netrw
-
-"""" Hide banner
-
-let g:netrw_banner = 0
-
-"""" List files without expandable directories
-
-let g:netrw_liststyle = 3
-
-"""" Prevent history file creation
-
-let g:netrw_dirhistmax = 0
 
 "" Fugitive | Version Control
 
@@ -490,11 +424,11 @@ nnoremap <silent> <Leader>gm :Gvdiffsplit!<cr>
 
 """ While Merging | take left change
 
-nnoremap <silent> <Leader>gl :diffget //2<cr>
+nnoremap <silent> <Leader>gh :diffget //2<cr>
 
 """ When Merging | take right change
 
-nnoremap <silent> <Leader>gr :diffget //3<cr>
+nnoremap <silent> <Leader>gl :diffget //3<cr>
 
 """ Push commited changes
 
@@ -508,14 +442,12 @@ nmap <Leader>ra :Far <C-R><C-W>/<C-R><C-W>/g<left><left>
 
 "" FZF
 
-""" Files
+if executable('rg')
+  let $FZF_DEFAULT_COMMAND = 'rg --files --hidden --follow --glob "!.git/*"'
+  set grepprg=rg\ --vimgrep\ --smart-case\ --follow
+endif
 
-nnoremap <silent> <C-P> :GFiles<CR>
-
-""" Tags
-
-nnoremap <silent> <C-T> :call fzf#vim#tags(expand('<cword>'))<CR>
-nnoremap <silent> <C-T><C-T> :Tags<CR>
+nnoremap <C-g> :Rg<CR>
 
 """ Buffers
 
@@ -533,28 +465,6 @@ nnoremap <silent> <C-F> :Ag<CR>
 """ Search encrypted files
 
 nmap <leader>x :call Xgrep()<CR>
-
-"" RSpec.vim
-
-map <Leader>tc :call RunNearestSpec()<CR>
-map <Leader>tl :call RunLastSpec()<CR>
-map <Leader>tf :call RunCurrentSpecFile()<CR>
-map <Leader>ta :call RunAllSpecs()<CR>
-
-"" Rubocop
-
-let g:vimrubocop_keymap = 0
-nmap <Leader>rs :RuboCop<CR>
-nmap <Leader>rf :RuboCop -A<CR>
-
-"" Bookmarks
-
-let g:bookmark_auto_save_file = $VVIM .'/bookmarks'
-nmap <Leader>bb <Plug>BookmarkToggle
-nmap <Leader>bs <Plug>BookmarkShowAll
-nmap <Leader>bn <Plug>BookmarkNext
-nmap <Leader>bp <Plug>BookmarkPrev
-nmap <Leader>bc <Plug>BookmarkClearAll
 
 "" Markdown
 
