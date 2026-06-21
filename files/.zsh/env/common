@@ -121,6 +121,14 @@ bindkey '^[[3~' delete-char           # Delete
 bindkey '^[[5~' up-line-or-history    # Page Up
 bindkey '^[[6~' down-line-or-history  # Page Down
 
+### Up Key | Pattern Match On History
+
+autoload -U up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey "^[[A" up-line-or-beginning-search
+bindkey "^[[B" down-line-or-beginning-search
+
 ## File System
 
 ### Home

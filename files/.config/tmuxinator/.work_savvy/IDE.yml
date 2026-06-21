@@ -1,27 +1,27 @@
-<% root_dir = ENV['CSS'] %>
+<% root_dir = ENV['CS'] %>
 
 name: IDE
 root: <%= root_dir %>
 
 windows:
   - Be:
-      root: <%= root_dir %>/backend-service
-      # layout: even-horizontal
-      layout: even-vertical
+      root: <%= root_dir %>/Savvy/backend-service
+      layout: even-horizontal
+      # layout: even-vertical
       panes:
         - nvim .
         - claude
   - Fe:
-      root: <%= root_dir %>/web-app
-      # layout: even-horizontal
-      layout: even-vertical
+      root: <%= root_dir %>/Savvy/web-app
+      layout: even-horizontal
+      # layout: even-vertical
       panes:
         - nvim .
         - claude
   - Pvs:
-      root: <%= root_dir %>/portfolio-valuation-service
-      # layout: even-horizontal
-      layout: even-vertical
+      root: <%= root_dir %>/Savvy/portfolio-valuation-service
+      layout: even-horizontal
+      # layout: even-vertical
       panes:
         - nvim .
         - claude
