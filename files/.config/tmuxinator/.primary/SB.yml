@@ -1,0 +1,16 @@
+<% home = ENV['HOME'] %>
+<% sb_user = ENV['sb_username'] %>
+<% sb_host = ENV['sb_server_name'] %>
+<% sb_domain = ENV['sb_server_domain'] %>
+<% hle = ENV['HLE'] %>
+
+name: sb
+root: <%= home %>
+
+windows:
+  - tremc: "ssh -t <%= sb_user %>@<%= sb_host %>.<%= sb_domain %> 'tremc -X'"
+  - ssh: "ssh -t <%= sb_user %>@<%= sb_host %>.<%= sb_domain %> 'zsh'"
+  - hle:
+      root: <%= hle %>
+      panes:
+        - zsh
