@@ -41,7 +41,7 @@ alias dinfo="diskutil info"
 
 source "$ZFS/rm_mac"
 alias rm=rm_mac
-alias srm="$ZFS/srm_mac"
+alias srm='/bin/rm'
 alias rmt='trash'
 alias rmrf='trash'
 
