@@ -48,32 +48,6 @@ export SP="$SNC/Pictures"
 
 alias copy_with_progress="$ZSCRIPTS/filesystem/copy_with_progress"
 
-### Work
-
-#### Root
-
-export SW="$SNC/Work"
-
-#### Code
-
-export SWC="$SWORK/Code"
-
-#### Documents
-
-export SWD="$SWORK/Documents"
-
-#### Notes
-
-export SWN="$SWORK/Notes"
-
-#### Screenshots
-
-export SWS="$SWORK/Screenshots"
-
-#### Tickets
-
-export SWT="$SWORK/Tickets"
-
 ## Tools
 
 ### Snc
@@ -110,6 +84,7 @@ alias lm="opencode"
 
 ## Scans
 
+export SCANNER_DEFAULT="EPSON Perfection V600"
 alias scan=". $ZSCRIPTS/scan/scan_mac"
 
 ## Vpn
@@ -117,9 +92,9 @@ alias scan=". $ZSCRIPTS/scan/scan_mac"
 alias vpn_up="sudo echo 'INTIALIZING...';sudo nohup openvpn --config $BNK/cnf/o.v > /dev/null 2>&1 &!; sleep 3; whereami"
 alias vpn_down="sudo echo 'CLOSING...';sudo pkill openvpn; whereami"
 
-### Names
+### Kodi
 
-export SCANNER_DEFAULT="EPSON Perfection V600"
+export KODI="$HOME/Library/Application Support/Kodi/"
 
 ## Photos
 
@@ -139,10 +114,10 @@ alias photos_phone_clean='_confirm_adb_rm "phone photos" "$PHONE_PHOTOS"'
 ### Thumb
 
 alias rc_thumb_mount="$ZSCRIPTS/mount/mount_macos_by_label 'VOICE' $MNT/rc"
-alias rc_thumb_umount="umount $MNT/rc"
+alias rc_thumb_umount="diskutil unmount $MNT/rc"
 alias rc_thumb_copy="copy_with_progress $THUMB_RC $FLOWS_RC/In"
 alias rc_thumb_clean='_confirm_rm "RC thumb drive and current dir" $THUMB_RC/*(N) .'
-alias rc_thumb_list="ls -alh $THUMB_RC/*"
+alias rc_thumb_list='mount | grep -q " on $MNT/rc " || { echo "RC Thumb Not Mounted"; false }; files=($THUMB_RC/*(N)); (( ${#files} )) && ls -alh "${files[@]}" || echo "No Files Found"'
 
 ### Phone
 

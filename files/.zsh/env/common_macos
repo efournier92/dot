@@ -21,7 +21,7 @@ alias power_reboot="sudo shutdown -r now"
 
 ### Update
 
-alias system_update="system_update_macos"
+alias system_update="$ZSCRIPTS/environment/system_update_macos"
 
 ## App Openers
 
@@ -38,6 +38,8 @@ spreadsheet() { open -na 'LibreOffice' --args --calc "$@" }
 
 alias dlist="diskutil list"
 alias dinfo="diskutil info"
+
+alias cpwd="pwd | tr -d '\n' | pbcopy"
 
 source "$ZFS/rm_mac"
 alias rm=rm_mac

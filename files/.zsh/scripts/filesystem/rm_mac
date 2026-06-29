@@ -3,9 +3,10 @@
 #----------------
 # Name          : rm_mac
 # Description   : Safe-delete wrapper that routes `rm` to macOS Trash.
-#                 Strips flags, falls through to real rm when no paths
-#                 are given (so `rm --help` etc. still work). Designed
-#                 to be sourced and then aliased as `rm`.
+#                 Strips flags (forwards -v/--verbose to trash), falls
+#                 through to real rm when no paths are given (so
+#                 `rm --help` etc. still work). Designed to be sourced
+#                 and then aliased as `rm`.
 # Author        : E Fournier
 # Dependencies  : trash (brew install macos-trash); falls back to
 #                 /usr/bin/trash (Apple built-in on macOS 15+).
@@ -17,15 +18,24 @@ command -v trash >/dev/null 2>&1 || alias trash='/usr/bin/trash'
 
 rm_mac() {
   emulate -L zsh
-  local -a paths=()
+  local -a paths=() trash_flags=()
   local arg
   for arg in "$@"; do
-    [[ $arg != -* ]] && paths+=("$arg")
+    if [[ $arg == -* ]]; then
+      # Forward -v / --verbose (incl. clusters like -rfv, -vrf) to trash.
+      # Note: macos-trash ignores -v; /usr/bin/trash supports it.
+      case $arg in
+        --verbose|-*v*) trash_flags+=(-v) ;;
+      esac
+    else
+      paths+=("$arg")
+    fi
   done
   if (( ${#paths[@]} )); then
     # macos-trash has no `--` end-of-options separator; prefix any path
     # starting with `-` with `./` so it isn't misread as a flag.
-    local p out=()
+    local p
+    local -a out=("${trash_flags[@]}")
     for p in "${paths[@]}"; do
       [[ $p == -* ]] && p="./$p"
       out+=("$p")
