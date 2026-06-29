@@ -100,6 +100,10 @@ alias ssh_lb="ssh ${lb_username}@${lb_server_domain} -p ${sb_server_port}"
 
 alias ssh_mb="ssh ${mb_username}@${mb_server_domain}"
 
+### Connect to LLM via SSH
+
+alias ssh_llm="ssh ${llm_username}@${llm_server_domain} -p ${llm_server_port}"
+
 ## RC
 
 ### Process
@@ -275,7 +279,7 @@ alias rc_thumb_umount="umount $RC"
 
 #### List files
 
-alias rc_thumb_list="ls -lh $RC/RECORD"
+alias rc_thumb_list='mountpoint -q "$RC" || { echo "RC Thumb Not Mounted"; false }; files=($RC/RECORD/*(N)); (( ${#files} )) && ls -lh "${files[@]}" || echo "No Files Found"'
 
 #### Copy files
 

@@ -183,23 +183,100 @@ check_rosetta() {
 }
 
 # USER ACTIONS
-maybe_empty_trash() {
+empty_trash() {
   print_header "EMPTY TRASH"
-  local trash_size
-  trash_size=$(du -sh "$HOME/.Trash" 2>/dev/null | cut -f1)
-  if [ -z "$trash_size" ] || [ "$trash_size" = "0B" ]; then
-    echo "Trash is empty."
+  local uid user_trash
+  uid=$(id -u)
+  user_trash="$HOME/.Trash"
+
+  local ext_trashes=()
+  for voldir in /Volumes/*/.Trashes; do
+    [ -d "$voldir/$uid" ] || continue
+    ext_trashes+=("$voldir/$uid")
+  done
+
+  local user_count=0 ext_total=0
+  for t in "${ext_trashes[@]+"${ext_trashes[@]}"}"; do
+    local c
+    c=$(find "$t" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+    ext_total=$((ext_total + ${c:-0}))
+  done
+  # ~/.Trash is SIP-protected on macOS: find/ls/rm return "Operation not permitted" (stderr suppressed → silent 0).
+  # AppleScript can't alias the folder either, so use Finder's unified count and subtract ext_total.
+  local finder_total=""
+  if command -v osascript &>/dev/null; then
+    finder_total=$(osascript -e 'tell application "Finder" to return count of items of trash' 2>/dev/null || true)
+  fi
+  user_count=$(find "$user_trash" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+  user_count=${user_count:-0}
+  if [[ "$finder_total" =~ ^[0-9]+$ ]]; then
+    user_count=$((finder_total - ext_total))
+    [ "$user_count" -lt 0 ] && user_count=0
+  fi
+
+  if [ "$user_count" -eq 0 ] && [ "$ext_total" -eq 0 ]; then
+    echo "Trash is empty (user + external volumes)."
     return 0
   fi
-  echo "Trash size: $trash_size"
-  local reply=""
-  read -r -p "Empty Trash? [y/N] " reply || true
-  if [[ "${reply:-}" =~ ^[Yy]$ ]]; then
-    osascript -e 'tell application "Finder" to empty trash'
-    echo "Trash emptied."
-  else
-    echo "Trash preserved."
+
+  echo "User trash: $user_count item(s)"
+  for t in "${ext_trashes[@]+"${ext_trashes[@]}"}"; do
+    local vol c
+    vol=$(basename "$(dirname "$(dirname "$t")")")
+    c=$(find "$t" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+    echo "External trash on '$vol': ${c:-0} item(s)"
+  done
+
+  if [[ ! -t 0 ]]; then
+    echo "Non-interactive stdin — skipping."
+    return 0
   fi
+  local reply=""
+  if ! read -r -t 30 -p "Empty all trash (user + external)? [y/N] " reply; then
+    echo
+    echo "No response within 30s — skipping."
+    return 0
+  fi
+  if [[ ! "${reply:-}" =~ ^[Yy]$ ]]; then
+    echo "Trash preserved."
+    return 0
+  fi
+
+  if osascript -e 'tell application "Finder" to empty trash' 2>/dev/null; then
+    echo "Finder emptied user trash."
+  else
+    echo "osascript failed (Automation permission denied?) — falling back to rm."
+    rm -rfv -- "$user_trash"/* 2>/dev/null || true
+  fi
+
+  for t in "${ext_trashes[@]+"${ext_trashes[@]}"}"; do
+    echo "Emptying $t ..."
+    rm -rfv -- "$t"/* 2>/dev/null || true
+  done
+
+  local post_user=0 post_ext=0
+  for t in "${ext_trashes[@]+"${ext_trashes[@]}"}"; do
+    local c
+    c=$(find "$t" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+    post_ext=$((post_ext + ${c:-0}))
+  done
+  local post_finder=""
+  if command -v osascript &>/dev/null; then
+    post_finder=$(osascript -e 'tell application "Finder" to return count of items of trash' 2>/dev/null || true)
+  fi
+  post_user=$(find "$user_trash" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+  post_user=${post_user:-0}
+  if [[ "$post_finder" =~ ^[0-9]+$ ]]; then
+    post_user=$((post_finder - post_ext))
+    [ "$post_user" -lt 0 ] && post_user=0
+  fi
+  local post_total=$((post_user + post_ext))
+  echo "Post-empty: $post_total item(s) remaining (user=$post_user, external=$post_ext)."
+  if [ "$post_total" -gt 0 ]; then
+    echo "WARNING: some items remain (likely locked by another app)."
+    return 1
+  fi
+  echo "All trash emptied."
 }
 
 backup_brewfile() {
@@ -268,7 +345,7 @@ main() {
 
   check_rosetta
 
-  maybe_empty_trash
+  empty_trash
   backup_brewfile
   refresh_font_cache
   clean_unison_backups
