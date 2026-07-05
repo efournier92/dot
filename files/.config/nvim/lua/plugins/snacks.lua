@@ -14,6 +14,13 @@
 --    { "<leader>gG", "<cmd>LazyGit<cr>", desc = "LazyGit" },
 --  },
 --}
+-- lazygit defaults to ~/Library/Application Support/lazygit on macOS, but
+-- respects XDG_CONFIG_HOME if set. Point it at ~/.config so config.yml
+-- (with our custom commands) lives alongside the rest of this repo.
+-- Scoped to this nvim process and anything it spawns (e.g. :terminal),
+-- not the user's shell environment.
+vim.env.XDG_CONFIG_HOME = vim.fn.expand("~/.config")
+
 return {
   "folke/snacks.nvim",
   priority = 1000,
