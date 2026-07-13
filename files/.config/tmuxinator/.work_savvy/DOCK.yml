@@ -13,7 +13,7 @@ windows:
       root: <%= home_dir %>/.aws
       panes:
         -
-  - LLM Usage:
+  - Usage:
       root: <%= code_dir %>/backend-service
       panes:
         - claude /usage

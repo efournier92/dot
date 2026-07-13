@@ -1,6 +1,4 @@
 vim.keymap.set("n", "<leader>wt", "<cmd>tabnew<cr>", { desc = "New Tab" })
-
--- Navigate the quickfix menu
 vim.keymap.set("n", "<M-j>", function()
   _G.fugitive_diff_nav("cnext")
 end)

@@ -1,8 +1,4 @@
--- Fugitive difftool quickfix items set 'module' to "<ref>:relative/path"
--- (e.g. ":0:init.lua"), and the quickfix window prefers 'module' over
--- 'filename' for display. Strip the "<ref>:" part so the list just shows
--- the path and line number. Global because lazygit's custom commands call
--- this via v:lua over a remote-expr, which can't reach a local/module fn.
+-- List Fugitive diffs in quickfix menu
 function _G.fugitive_qf_clean()
   local qf = vim.fn.getqflist()
   for _, item in ipairs(qf) do
@@ -14,20 +10,12 @@ function _G.fugitive_qf_clean()
 end
 
 -- Run `git commit` in a real terminal split (full-width, top of the tab)
--- instead of through fugitive's :Git/:Git! job wrapper. That wrapper tries
--- to capture hook stdout into a scratch buffer, and chokes when a hook
--- prints interactive TUI output (e.g. yarn/lint-staged spinners) - the raw
--- escape codes get misread and freeze nvim solid until the hook exits. A
--- plain :terminal is a real PTY, so spinners render fine and nvim never
--- blocks.
 function _G.fugitive_commit_split()
   vim.cmd("topleft terminal git commit")
   vim.cmd("startinsert")
 end
 
--- Bind <leader>cc to fugitive_commit_split on every window in the current
--- tab (the diff panes swap buffers as you navigate the quickfix, so this
--- gets re-applied on every jump too). Used by the <leader>GG diff tab below.
+-- Bind <leader>cc to fugitive_commit_split
 function _G.fugitive_bind_commit_key()
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     vim.keymap.set("n", "<leader>cc", "<cmd>lua _G.fugitive_commit_split()<CR>", {
@@ -37,12 +25,7 @@ function _G.fugitive_bind_commit_key()
   end
 end
 
--- Navigate the quickfix menu (bound to <M-j>/<M-k> in lua/config/keymaps.lua).
--- When the list came from a fugitive difftool command (lazygit's custom
--- commands, or <leader>GG below), also re-open the diff split against the
--- new entry's companion revision so highlighting follows along. Global so
--- the general-purpose keymaps file can call it without requiring this
--- plugin spec as a module.
+-- Navigate the quickfix menu
 function _G.fugitive_diff_nav(cmd)
   vim.cmd("silent! " .. cmd)
   local qf = vim.fn.getqflist({ idx = 0, context = 1 })
@@ -54,9 +37,6 @@ function _G.fugitive_diff_nav(cmd)
   end
   local companion = diff[#diff].filename
   local cur_win = vim.api.nvim_get_current_win()
-  -- fugitive clears the 'diff' option on every window in the tab as soon as
-  -- you jump to a new revision, so we can't filter on &diff here: close
-  -- everything except the current (target) window and the quickfix window.
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     local buftype = vim.bo[vim.api.nvim_win_get_buf(w)].buftype
     if w ~= cur_win and buftype ~= "quickfix" then
@@ -89,13 +69,13 @@ return {
       "<leader>GB",
       function()
         vim.cmd("tabnew")
-        vim.cmd("Git difftool HEAD")
+        vim.cmd("Git difftool main...HEAD")
         _G.fugitive_qf_clean()
-        vim.cmd("leftabove Gvdiffsplit HEAD")
+        vim.cmd("leftabove Gvdiffsplit main")
         vim.cmd("botright copen")
         _G.fugitive_bind_commit_key()
       end,
-      desc = "Uncommitted changes vs HEAD diff (quickfix)",
+      desc = "Branch changes vs main diff (quickfix)",
     },
   },
   config = function()
@@ -121,8 +101,18 @@ return {
         end, { buffer = bufnr, desc = "Open file diff" })
 
         vim.keymap.set("n", "cc", _G.fugitive_commit_split, { buffer = bufnr, desc = "Commit" })
-        vim.keymap.set("n", "vv", "<Plug>fugitive:dv", { buffer = bufnr, remap = true, desc = "Vertical diff (alias of dv)" })
-        vim.keymap.set("n", "hh", "<Plug>fugitive:dh", { buffer = bufnr, remap = true, desc = "Horizontal diff (alias of dh)" })
+        vim.keymap.set(
+          "n",
+          "vv",
+          "<Plug>fugitive:dv",
+          { buffer = bufnr, remap = true, desc = "Vertical diff (alias of dv)" }
+        )
+        vim.keymap.set(
+          "n",
+          "hh",
+          "<Plug>fugitive:dh",
+          { buffer = bufnr, remap = true, desc = "Horizontal diff (alias of dh)" }
+        )
       end,
     })
   end,
