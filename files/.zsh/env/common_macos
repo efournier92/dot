@@ -23,6 +23,10 @@ alias power_reboot="sudo shutdown -r now"
 
 alias system_update="$ZSCRIPTS/environment/system_update_macos"
 
+### Clean Up | DS Files
+
+alias ds_cleanup="sudo find . -name '.DS_Store' -print -delete"
+
 ## App Openers
 
 ### Browser
