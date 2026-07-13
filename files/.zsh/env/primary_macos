@@ -100,7 +100,7 @@ export KODI="$HOME/Library/Application Support/Kodi/"
 
 ### Flows
 
-alias photos_flows_clean='_confirm_rm "photos flows dir" $FLOWS_PHOTOS/*(N)'
+alias photos_flows_clean='_confirm_rm_lt "photos flows dir" "$FLOWS_PHOTOS" $FLOWS_PHOTOS/*(N)'
 
 ### Phone
 
@@ -116,7 +116,7 @@ alias photos_phone_clean='_confirm_adb_rm "phone photos" "$PHONE_PHOTOS"'
 alias rc_thumb_mount="$ZSCRIPTS/mount/mount_macos_by_label 'VOICE' $MNT/rc"
 alias rc_thumb_umount="diskutil unmount $MNT/rc"
 alias rc_thumb_copy="copy_with_progress $THUMB_RC $FLOWS_RC/In"
-alias rc_thumb_clean='_confirm_rm "RC thumb drive and current dir" $THUMB_RC/*(N) .'
+alias rc_thumb_clean='_confirm_rm_lt "RC thumb drive" "$THUMB_RC" $THUMB_RC/*(N)'
 alias rc_thumb_list='mount | grep -q " on $MNT/rc " || { echo "RC Thumb Not Mounted"; false }; files=($THUMB_RC/*(N)); (( ${#files} )) && ls -alh "${files[@]}" || echo "No Files Found"'
 
 ### Phone

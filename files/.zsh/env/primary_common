@@ -209,32 +209,26 @@ export THUMB_RC="$MNT/rc/RECORD"
 
 ### Clean helpers
 
-# Confirm and rm files matching a glob (local paths).
-# Usage: _confirm_rm "<description>" <path/glob>...
-# Use (N) glob qualifier on each pattern to allow empty matches.
-_confirm_rm() {
+# Confirm and rm, displaying a tree via `lt` (eza --tree --icons).
+# Usage: _confirm_rm_lt "<description>" <tree-path> <delete-target>...
+_confirm_rm_lt() {
   local desc="$1"; shift
+  local tree="$1"; shift
   if [[ $# -eq 0 ]]; then
     echo "No files to delete: $desc"
     return 0
   fi
-  local files
-  files=$(ls -A "$@" 2>/dev/null | grep -v '^\.\.\?$' | grep -v '^[^:]*:$')
-  if [[ -z "$files" ]]; then
-    echo "No files to delete: $desc"
-    return 0
-  fi
-  local count=$(print -l -- ${(f)files} | wc -l | tr -d ' ')
+  local count=$(find "$@" -type f 2>/dev/null | wc -l | tr -d ' ')
   echo "Files to delete ($desc):"
-  print -l -- ${(f)files} | sed 's/^/  /'
-  read -q "?Delete $count file(s) listed above? [y/N] "
+  eza --tree --icons "$tree"
+  read -q "?Delete $count file(s)? [y/N] "
   local reply_status=$?
   echo
   if [[ $reply_status -ne 0 ]]; then
     echo "Cancelled."
     return 1
   fi
-  rm -rv "$@"
+  rm -rfv "$@"
 }
 
 # Confirm and rm files on Android device via adb.
@@ -242,17 +236,35 @@ _confirm_rm() {
 _confirm_adb_rm() {
   local desc="$1"
   local adbpath="$2"
-  local tmpfile=$(mktemp)
-  adb shell "ls '$adbpath'" > "$tmpfile" 2>&1
-  if [[ $? -ne 0 || ! -s "$tmpfile" ]]; then
-    rm -f "$tmpfile"
+  local tmpdir=$(mktemp -d)
+  local mirror="$tmpdir/tree"
+  mkdir -p "$mirror"
+
+  adb shell "cd '$adbpath' && find . -type d" 2>/dev/null \
+    | tail -n +2 | while IFS= read -r d; do
+        local rel=${d#./}
+        [[ -z "$rel" ]] && continue
+        mkdir -p "$mirror/$rel"
+      done
+  adb shell "cd '$adbpath' && find . -type f" 2>/dev/null \
+    | while IFS= read -r f; do
+        local rel=${f#./}
+        [[ -z "$rel" ]] && continue
+        mkdir -p "$mirror/$(dirname "$rel")"
+        : > "$mirror/$rel"
+      done
+
+  local count=$(adb shell "cd '$adbpath' && find . -type f" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$count" -eq 0 ]]; then
+    rm -rf "$tmpdir"
     echo "No files to delete on phone: $desc ($adbpath)"
     return 0
   fi
-  local count=$(wc -l < "$tmpfile" | tr -d ' ')
-  echo "Files to delete on phone ($desc):"
-  sed 's/^/  /' "$tmpfile"
-  rm -f "$tmpfile"
+
+  echo "Files to delete on phone ($desc):  ($adbpath)"
+  eza --tree --icons "$mirror" | tail -n +2
+  rm -rf "$tmpdir"
+
   read -q "?Delete $count file(s) listed above? [y/N] "
   local reply_status=$?
   echo
@@ -265,7 +277,7 @@ _confirm_adb_rm() {
 
 ### Flows
 
-alias rc_flows_clean='_confirm_rm "RC flows (in+out)" $FLOWS_RC_IN/*(N) $FLOWS_RC_OUT/*(N)'
+alias rc_flows_clean='_confirm_rm_lt "RC flows (in+out)" "$FLOWS_RC" $FLOWS_RC_IN/*(N) $FLOWS_RC_OUT/*(N)'
 
 ### RC
 
@@ -287,7 +299,7 @@ alias rc_thumb_copy="cp -rv $RC/RECORD/* ."
 
 #### Remove WAV files
 
-alias rc_thumb_clean='_confirm_rm "RC thumb WAV files" $RC/RECORD/*.WAV(N)'
+alias rc_thumb_clean='_confirm_rm_lt "RC thumb WAV files" "$RC/RECORD" $RC/RECORD/*.WAV(N)'
 
 #### Convert Files
 
@@ -317,7 +329,7 @@ alias rc_bank_list="ls $RC/VIDEO"
 
 #### Remove WAV files
 
-alias rc_bank_clean='_confirm_rm "RC bank AVI files" $RC/VIDEO/*.AVI(N)'
+alias rc_bank_clean='_confirm_rm_lt "RC bank AVI files" "$RC/VIDEO" $RC/VIDEO/*.AVI(N)'
 
 #### Convert Files
 
