@@ -1,4 +1,5 @@
-<% root_dir = ENV['SLG'] %>
+# Requires $ZSCRIPTS=~/.zsh/scripts -- lg_open ships in this repo at .zsh/scripts/lg/lg_open.
+<% root_dir = ENV['SLG'] || ENV['HOME'] %>
 
 name: LG
 root: <%= root_dir %>

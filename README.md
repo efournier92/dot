@@ -25,7 +25,7 @@ This project is provided under the [MIT](https://opensource.org/licenses/MIT) li
 - [.tmux.conf](https://github.com/efournier92/dot/blob/main/files/.tmux.conf)
 - [.zshenv](https://github.com/efournier92/dot/blob/main/files/.zshenv)
 - [.gitconfig](https://github.com/efournier92/dot/blob/main/files/.gitconfig)
-- [.env_name](https://github.com/efournier92/dot/blob/main/files/.env_name)
+- [.env_name.example](https://github.com/efournier92/dot/blob/main/files/.env_name.example)
 - [.vim/](https://github.com/efournier92/dot/tree/main/files/.vim)
 - [.tmux/](https://github.com/efournier92/dot/tree/main/files/.tmux)
 - [.zsh/](https://github.com/efournier92/dot/tree/main/files/.zsh)

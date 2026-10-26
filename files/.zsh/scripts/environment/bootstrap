@@ -52,7 +52,7 @@ typeset -a CASKS=(
 readonly DOTFILES_REPO="efournier92/dot"
 readonly DOTFILES_DIR="$HOME/bnk/cs/dot"
 readonly DOTFILES_SRC="$DOTFILES_DIR/files"
-readonly ENV_NAME_FILE="$DOTFILES_SRC/.env_name"
+readonly ENV_NAME_FILE="$HOME/.env_name"
 
 # Files in $HOME that the user manages and the script must not touch.
 # Excluded from the rsync entirely, so a preexisting local version is
@@ -61,6 +61,13 @@ readonly ENV_NAME_FILE="$DOTFILES_SRC/.env_name"
 # env_name) or hand-curated overrides.
 typeset -a PRESERVE_HOME_FILES=(
   '.env_name'
+)
+
+# env_names whose profiles live under personal/.zsh/env/ and are deployed by
+# the additive personal/ overlay pass instead of the main mirror.
+typeset -a PERSONAL_ENV_PROFILES=(
+  primary_macos
+  primary_common
 )
 
 # -----------------------------------------------------------------------------
@@ -309,6 +316,7 @@ rsync_dotfiles_to_home() {
     --exclude=.git
     --exclude=.DS_Store
     --exclude='*.swp'
+    --exclude=personal/
   )
   local pf
   for pf in "${PRESERVE_HOME_FILES[@]}"; do
@@ -321,6 +329,19 @@ rsync_dotfiles_to_home() {
     return 1
   fi
   rm -f "$filter"
+  # personal/ maps onto the shared $HOME paths (eg. personal/.zsh/env/primary_macos)
+  # rather than to a $HOME/personal directory, so the main pass always skips it.
+  # Personal machines get it as a second, additive pass: no --delete, because an
+  # overlay must never prune files the main pass owns.
+  if (( ${PERSONAL_ENV_PROFILES[(Ie)$env_name]} )); then
+    log_info "personal env_name — applying personal/ overlay"
+    if ! rsync -a -I --backup --backup-dir="$archive_root" \
+      --exclude=.git --exclude=.DS_Store \
+      "$DOTFILES_SRC/personal/" "$HOME/"; then
+      log_warn "personal overlay rsync failed — continuing"
+      return 1
+    fi
+  fi
   # Refresh a convenience symlink pointing at the latest archive, so
   # `ls ~/.bak` always shows the most recent backup without needing
   # to know the timestamp.
@@ -439,7 +460,11 @@ detect_os() {
 # Read the active env_name (line 1) from an .env_name file. Skips blank
 # / comment lines. Returns 1 if the file is missing or yields no value.
 read_active_env_name() {
-  local file="${1:-$DOTFILES_SRC/.env_name}"
+  local file="${1:-}"
+  if [[ -z "$file" ]]; then
+    file="$HOME/.env_name"
+    [[ -f "$file" ]] || file="$DOTFILES_SRC/.env_name"
+  fi
   [[ -f "$file" ]] || return 1
   local line
   line="$(head -n 1 "$file")"
@@ -454,10 +479,14 @@ read_active_env_name() {
 # ~/.env_name directly; rsync would create it too, but we want it
 # present before we compute the filter.
 _ensure_env_name() {
-  if [[ ! -e "$HOME/.env_name" && -f "$DOTFILES_SRC/.env_name" ]]; then
-    log_info "creating $HOME/.env_name from $DOTFILES_SRC/.env_name"
-    cp -p "$DOTFILES_SRC/.env_name" "$HOME/.env_name"
+  if [[ ! -e "$ENV_NAME_FILE" && -f "$DOTFILES_SRC/.env_name.example" ]]; then
+    log_info "creating $ENV_NAME_FILE from $DOTFILES_SRC/.env_name.example"
+    cp -p "$DOTFILES_SRC/.env_name.example" "$ENV_NAME_FILE" || return 1
+  elif [[ ! -e "$ENV_NAME_FILE" ]]; then
+    log_warn "$ENV_NAME_FILE missing — copy $DOTFILES_SRC/.env_name.example to $ENV_NAME_FILE"
+    return 1
   fi
+  return 0
 }
 
 # Build an rsync --filter file encoding the OS-aware env include rules.
@@ -486,7 +515,7 @@ _build_env_filter() {
       macos)
         print -r -- "+ .zsh/env/common_macos"
         if [[ -n "$env_name" ]]; then
-          print -r -- "+ .zsh/env/${env_name}_mac*"
+          print -r -- "+ .zsh/env/${env_name}"
         else
           print -r -- '+ .zsh/env/*_mac*'
         fi
@@ -499,7 +528,7 @@ _build_env_filter() {
       linux)
         print -r -- "+ .zsh/env/common_linux"
         if [[ -n "$env_name" ]]; then
-          print -r -- "+ .zsh/env/${env_name}_linux*"
+          print -r -- "+ .zsh/env/${env_name}"
         else
           print -r -- '+ .zsh/env/*_linux*'
         fi
@@ -513,7 +542,7 @@ _build_env_filter() {
       wsl)
         print -r -- "+ .zsh/env/common_wsl"
         if [[ -n "$env_name" ]]; then
-          print -r -- "+ .zsh/env/${env_name}_wsl*"
+          print -r -- "+ .zsh/env/${env_name}"
         else
           print -r -- '+ .zsh/env/*_wsl*'
         fi
@@ -655,13 +684,15 @@ setup_dotfiles() {
     log_info "dotfiles directory already present at $DOTFILES_DIR"
   fi
 
+  _ensure_env_name
+
   if [[ ! -f "$ENV_NAME_FILE" ]]; then
     log_warn "$ENV_NAME_FILE not found — skipping env_name selection"
     rsync_dotfiles_to_home
     return 0
   fi
 
-  # $ENV_NAME_FILE = $HOME/bnk/cs/dot/files/.env_name (inside dot/files, not repo root)
+  # $ENV_NAME_FILE = $HOME/.env_name, seeded from $DOTFILES_SRC/.env_name.example
   local -a choices
   choices=("${(@f)$(read_env_name_choices "$ENV_NAME_FILE")}")
   if (( ${#choices} == 0 )); then

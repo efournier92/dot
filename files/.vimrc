@@ -5,6 +5,35 @@
 " Dependencies  : vim
 "----------------
 
+" Data
+
+"" Editor Directory
+
+""" Fall back to the default location when $VVIM is unset (eg. launched outside zsh)
+
+if empty($VVIM)
+  let $VVIM = $HOME . '/.vim'
+endif
+
+"" Dictionary and Thesaurus
+
+""" Fetch the word list (Hunspell en_US) and the thesaurus (MyThes) on first run
+
+if empty(glob($VVIM . '/dict/en_us.dict')) || empty(glob($VVIM . '/thesaurus/th_en_us.idx'))
+  call mkdir($VVIM . '/dict', 'p')
+  call mkdir($VVIM . '/thesaurus', 'p')
+  call mkdir($VVIM . '/.tmp', 'p')
+  silent execute '!curl -fsSL -o "' . $VVIM . '/.tmp/en_us.dic" https://raw.githubusercontent.com/LibreOffice/dictionaries/master/en/en_US.dic && cp "' . $VVIM . '/.tmp/en_us.dic" "' . $VVIM . '/dict/en_us.dict"'
+  if v:shell_error
+    echo 'vimrc: dictionary download failed — check curl and network access'
+  endif
+  silent execute '!curl -fsSL -o "' . $VVIM . '/.tmp/mythes.zip" https://www.openoffice.org/lingucomponent/MyThes-1.zip && unzip -o -q "' . $VVIM . '/.tmp/mythes.zip" "MyThes-1.0/th_en_US_new.*" -d "' . $VVIM . '/.tmp/mythes" && cp "' . $VVIM . '/.tmp/mythes/MyThes-1.0/th_en_US_new.dat" "' . $VVIM . '/thesaurus/th_en_us.dat" && cp "' . $VVIM . '/.tmp/mythes/MyThes-1.0/th_en_US_new.idx" "' . $VVIM . '/thesaurus/th_en_us.idx"'
+  if v:shell_error
+    echo 'vimrc: thesaurus download failed — check curl, unzip and network access'
+  endif
+  silent execute 'redraw!'
+endif
+
 " System
 
 "" Syntax
@@ -359,11 +388,17 @@ endfunction
 
 """ Insert ticket link
 
+""" Requires $TICKET_URL_BASE (eg. https://example.atlassian.net)
+
 function! InsertTicketLink()
+  if empty($TICKET_URL_BASE)
+    echoerr 'TICKET_URL_BASE is not set'
+    return
+  endif
   let l:default = 'SPM-'
   let l:input = input('ID: ', l:default)
   if !empty(l:input)
-    let l:link = printf('[%s](https://savvylabs.atlassian.net/browse/%s)', l:input, l:input)
+    let l:link = printf('[%s](%s/browse/%s)', l:input, $TICKET_URL_BASE, l:input)
     execute "normal! a" . ' ' . l:link
   endif
 endfunction
@@ -384,6 +419,7 @@ endif
 call plug#begin()
   Plug 'airblade/vim-gitgutter'
   Plug 'andymass/vim-matchup'
+  Plug 'efournier92/vim-emoji-to-text'
   Plug 'gabrielelana/vim-markdown'
   Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
   Plug 'junegunn/fzf.vim'
@@ -476,4 +512,15 @@ let g:markdown_mapping_switch_status = '<Leader>m'
 """ Markdown
 
 exe "source " . $VVIM . "/functions/markdown.vim"
+
+""" Emoji-To-Text
+
+nnoremap <leader>emo :EmojiToText<CR>
+xnoremap <leader>emo :EmojiToText<CR>
+
+"" Accident Prevention
+
+""" Refuse To Create `'` File
+
+autocmd BufWriteCmd ' echoerr "Refusing to write file named '"
 

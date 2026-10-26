@@ -1,0 +1,17 @@
+#!/bin/bash
+
+main() {
+  local phone_rc_dir="$1"
+  local local_rc_dir="$2"
+  
+  rc_dir
+
+  adb pull "$phone_rc_dir" "$local_rc_dir"
+
+  find . -name "*.wav" -exec mv {} . \;
+
+  find . -mindepth 1 -maxdepth 1 -type d -exec rm -rv {} \;
+}
+
+main "$@"
+

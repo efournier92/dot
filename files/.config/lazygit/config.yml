@@ -1,11 +1,12 @@
+gui:
+  showFileTree: false
 git:
-  pagers:
+  diffRenderers:
     - colorArg: always
-      pager: delta --dark --paging=never --side-by-side
-
+      command: delta --dark --paging=never --side-by-side
 customCommands:
   - key: "e"
     context: "files"
     description: "Open file in vertical fugitive diff (Gvdiffsplit)"
-    command: nvim --server "$NVIM" --remote-expr "execute(['tabedit '.fnameescape('{{.SelectedFile.Name}}'), 'Gvdiffsplit @', 'windo normal! zR'])"
+    command: nvim --server "$NVIM" --remote-expr "execute(['tabedit '.fnameescape('{{.SelectedFile.Name}}'), 'leftabove Gvdiffsplit @', 'windo normal! zR'])"
     output: none

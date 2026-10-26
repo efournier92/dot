@@ -63,6 +63,70 @@ clear_rails_schema() {
   rm "db/cache_schema.rb"
 }
 
+wait_for_backend() {
+  local max_wait=60
+  local waited=0
+
+  until docker exec backend-service true 2>/dev/null; do
+    sleep 5
+    waited=$((waited + 5))
+    if [[ $waited -ge $max_wait ]]; then
+      echo "backend-service not reachable after ${max_wait}s, skipping fe_ flag enable" >&2
+      return 1
+    fi
+  done
+}
+
+enable_frontend_features() {
+  print_header "ENABLING FE_ FEATURE FLAGS"
+
+  local web_app_dir="../web-app"
+  local settings_file="$web_app_dir/src/modules/admin/settings/index.tsx"
+  local env_file="$web_app_dir/.env"
+
+  if [[ ! -f "$settings_file" || ! -f "$env_file" ]]; then
+    echo "Skipping: $settings_file or $env_file not found" >&2
+    return
+  fi
+
+  local aud login_email
+  aud=$(grep -oE '^VITE_DEV_AUD="[^"]+"' "$env_file" | cut -d'"' -f2)
+  login_email=$(grep -oE '^DEV_LOGIN_EMAIL="[^"]+"' "$env_file" | cut -d'"' -f2)
+  login_email="${login_email:-${DEV_LOGIN_EMAIL:-}}"
+
+  if [[ -z "$login_email" ]]; then
+    echo "Skipping: set DEV_LOGIN_EMAIL in $env_file or the environment" >&2
+    return
+  fi
+
+  # FE owns this list (FrontendFeatures enum); we just relay whatever names exist
+  # right now, no hardcoded flag list to keep in sync here.
+  local names
+  names=$(grep -oE "fe_[a-zA-Z0-9_]+ = " "$settings_file" | awk '{print $1}' | sort -u | sed 's/.*/"&"/' | paste -sd, -)
+
+  if [[ -z "$names" ]]; then
+    echo "Skipping: no fe_ flags found in $settings_file" >&2
+    return
+  fi
+
+  local token
+  token=$(docker exec backend-service bundle exec rails runner "
+    user = User.find_by(email: '${login_email}')
+    puts \"JWT_TOKEN=#{Warden::JWTAuth::UserEncoder.new.call(user, :user, '${aud}').first}\" if user
+  " 2>/dev/null | grep -oE 'JWT_TOKEN=.*' | cut -d= -f2)
+
+  if [[ -z "$token" ]]; then
+    echo "Skipping: could not mint dev JWT for $login_email" >&2
+    return
+  fi
+
+  curl -s -o /dev/null -w "ensureFrontendFeatures -> HTTP %{http_code}\n" -X POST http://localhost:3000/graphql \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${token}" \
+    -H "JWT-AUD: ${aud}" \
+    -d "{\"query\":\"mutation(\$names: [String!]!) { ensureFrontendFeatures(names: \$names) { success } }\",\"variables\":{\"names\":[${names}]}}"
+}
+
 initialize_via_make_up() {
   print_header "RUNNING INITIAL MAKE UP"
   # Not everything will remain running after the initial `make_up`
@@ -70,6 +134,10 @@ initialize_via_make_up() {
   make up &
   # Wait 4 minutes for everything to initialize
   sleep 240
+
+  # Replaces manually opening the FE app once so its fe_ flags self-register
+  # (see backend-service Mutations::Features::EnsureFrontendFeatures - dev-only).
+  wait_for_backend && enable_frontend_features
 
   print_header "STOPPING CONTAINERS AFTER INITIAL MAKE UP"
   stop_all_containers

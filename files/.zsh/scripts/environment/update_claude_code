@@ -1,0 +1,144 @@
+#!/bin/bash
+
+#----------------
+# Name          : update_claude_code
+# Description   : Upgrades Claude Code via Homebrew, ensuring app not quarantined after update.
+# Author        : E Fournier
+# Dependencies  : brew, claude-code or claude-code@latest cask
+# Example Usage : ./update_claude_code
+#----------------
+
+set -euo pipefail
+
+# launchd/cron start with a bare PATH that lacks Homebrew.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_ENV_HINTS=1
+
+CASK_CANDIDATES=("claude-code@latest" "claude-code")
+CASK=""
+BEFORE=""
+LAUNCH_AGENT_PLIST="$HOME/Library/LaunchAgents/com.user.open-claude-window.plist"
+GUI_DOMAIN="gui/$(id -u)"
+
+print_header() {
+  local header_title="$1"
+  echo
+  echo "-------------------------------"
+  echo "# $header_title"
+  echo "-------------------------------"
+}
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+warn() {
+  echo "WARNING: $*" >&2
+}
+
+installed_version() {
+  brew list --cask --versions "$CASK" | awk '{print $NF}'
+}
+
+detect_cask() {
+  command -v brew >/dev/null || fail "brew not found on PATH"
+  local candidate
+  for candidate in "${CASK_CANDIDATES[@]}"; do
+    if brew list --cask "$candidate" >/dev/null 2>&1; then
+      CASK="$candidate"
+      BEFORE="$(installed_version)"
+      return
+    fi
+  done
+  fail "neither ${CASK_CANDIDATES[*]} is installed"
+}
+
+brew_update() {
+  local output
+  # brew prints progress on stderr, so keep it all and show it only on failure.
+  output="$(brew update --quiet 2>&1)" || fail "brew update failed: $output"
+}
+
+brew_upgrade() {
+  if [[ -n "$(brew outdated --cask --quiet "$CASK")" ]]; then
+    brew upgrade --cask --quiet "$CASK"
+  fi
+}
+
+ensure_no_quarantine() {
+  local cask_dir
+  cask_dir="$(brew --prefix)/Caskroom/$CASK/$(installed_version)"
+  [[ -d "$cask_dir" ]] || fail "cask dir missing: $cask_dir"
+  # Homebrew 5+ dropped --no-quarantine, so strip the xattr after every install.
+  xattr -dr com.apple.quarantine "$cask_dir"
+  if xattr -lr "$cask_dir" | grep -q com.apple.quarantine; then
+    fail "quarantine still present under $cask_dir"
+  fi
+}
+
+surface_permission_prompts() {
+  # A real request makes the new binary read its credentials, so any macOS "Allow" pop-up appears now while a human can click "Always Allow".
+  claude -p "hi" --model haiku >/dev/null || fail "claude request failed"
+}
+
+ensure_launch_agent_ready() {
+  if [[ ! -f "$LAUNCH_AGENT_PLIST" ]]; then
+    warn "launch agent not found: $LAUNCH_AGENT_PLIST"
+    return
+  fi
+  if ! plutil -lint -s "$LAUNCH_AGENT_PLIST"; then
+    warn "launch agent plist is invalid: $LAUNCH_AGENT_PLIST"
+    return
+  fi
+
+  # launchd keys the job by its Label, which need not match the file name.
+  local label service
+  label="$(plutil -extract Label raw "$LAUNCH_AGENT_PLIST" 2>/dev/null)" || {
+    warn "launch agent plist has no Label: $LAUNCH_AGENT_PLIST"
+    return
+  }
+  service="$GUI_DOMAIN/$label"
+
+  if launchctl print-disabled "$GUI_DOMAIN" | grep -Eq "\"$label\" => (disabled|true)"; then
+    warn "launch agent $label was disabled; re-enabling"
+    launchctl enable "$service" || warn "could not enable $label"
+  fi
+
+  if ! launchctl print "$service" >/dev/null 2>&1; then
+    warn "launch agent $label was not loaded; loading"
+    launchctl bootstrap "$GUI_DOMAIN" "$LAUNCH_AGENT_PLIST" || {
+      warn "could not load $label"
+      return
+    }
+  fi
+
+  local last_exit
+  last_exit="$(launchctl print "$service" | awk -F' = ' '/last exit code/ {print $2; exit}')"
+  if [[ "$last_exit" =~ ^[0-9]+$ && "$last_exit" != "0" ]]; then
+    warn "launch agent $label last exited with code $last_exit"
+  fi
+}
+
+report_version_change() {
+  local after
+  after="$(installed_version)"
+  if [[ "$BEFORE" == "$after" ]]; then
+    echo "$CASK $after (up to date)"
+  else
+    echo "$CASK $BEFORE -> $after"
+  fi
+}
+
+main() {
+  detect_cask
+  brew_update
+  brew_upgrade
+  ensure_no_quarantine
+  surface_permission_prompts
+  ensure_launch_agent_ready
+  report_version_change
+}
+
+main "$@"

@@ -1,11 +1,9 @@
 # Startup
+# Requires ~/.zsh/scripts/start/tmux -- ships in this repo at .zsh/scripts/start/tmux.
 
-#command = /bin/zsh -c "while true; do tmuxinator start BSE; done"
-#command = /bin/zsh -c "while true; do /bin/zsh ~/.tmux/sessions/base.session; done"
-#command = /bin/zsh -c "tmuxinator start BSE"
-#command = /bin/zsh -c "tmux"
-#command = /bin/zsh -l -i -c "tmuxinator start BSE"
 command = ~/.zsh/scripts/start/tmux
+
+term = xterm-256color
 
 # Appearance
 

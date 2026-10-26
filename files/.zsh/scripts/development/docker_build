@@ -1,0 +1,104 @@
+#!/bin/bash
+
+#----------------
+# Name          : docker_build
+# Description   : Non-destructively prunes docker (keeps named volumes / local DB data),
+#                 then runs `make build` in $CSS/backend-service
+# Author        : E Fournier
+# Dependencies  : docker, make
+# Example Usage : ./docker_build          # warm - keeps build cache
+#                 ./docker_build --cold   # cold - wipes build cache too
+#----------------
+
+set -uo pipefail
+
+PROJECT_DIR="${CSS:?CSS not set}/backend-service"
+
+print_line() {
+  echo "--------" >&2
+}
+
+print_header() {
+  local message="$1"
+
+  print_line
+  echo "$message" >&2
+  print_line
+}
+
+warn_if_containers_running() {
+  local running
+  running="$(docker ps -q)"
+
+  if [[ -n "$running" ]]; then
+    echo "WARNING: containers are running; pruning skips in-use resources." >&2
+    docker ps --format '  {{.Names}}' >&2
+  fi
+}
+
+# Safe to run concurrently with `make build`: build never touches stopped
+# containers or unused networks.
+prune_in_background() {
+  print_header "PRUNING CONTAINERS + NETWORKS (BACKGROUND)"
+
+  {
+    docker container prune -f
+    docker network prune -f
+  } >&2 &
+
+  BACKGROUND_PRUNE_PID="$!"
+}
+
+# NOT backgrounded: `docker image prune` and `docker builder prune` compete with
+# the build for the same layer store / build cache. Running them alongside
+# `make build` can delete layers the build just produced. Keep them up front.
+prune_images_and_cache() {
+  local cold="$1"
+
+  print_header "PRUNING DANGLING IMAGES"
+  docker image prune -f
+
+  if [[ "$cold" == "cold" ]]; then
+    print_header "PRUNING BUILD CACHE (COLD BUILD)"
+    docker builder prune -f
+  else
+    echo "Keeping build cache (warm build). Pass --cold to wipe it." >&2
+  fi
+}
+
+# Named volumes are never touched - that is where local DB data lives.
+report_disk_usage() {
+  print_header "DOCKER DISK USAGE"
+  docker system df
+}
+
+build() {
+  print_header "RUNNING MAKE BUILD"
+  make build
+}
+
+main() {
+  local cache_mode="warm"
+
+  case "${1:-}" in
+    --cold|-c) cache_mode="cold" ;;
+    "") ;;
+    *) echo "Unknown option: $1 (expected --cold)" >&2; exit 1 ;;
+  esac
+
+  cd "$PROJECT_DIR" || exit 1
+
+  warn_if_containers_running
+  report_disk_usage
+
+  prune_in_background
+  prune_images_and_cache "$cache_mode"
+
+  wait "$BACKGROUND_PRUNE_PID"
+
+  report_disk_usage
+
+  build
+}
+
+main "$@"

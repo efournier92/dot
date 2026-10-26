@@ -1,0 +1,87 @@
+#!/bin/zsh
+
+#----------------
+# Name          : adb_helpers
+# Description   : Shared adb helpers: list a device directory as a tree, and
+#                 confirm-and-remove device files. Designed to be sourced and
+#                 then called from aliases.
+# Author        : E Fournier
+# Dependencies  : adb, eza
+# Example Usage : _adb_tree <adb-path>
+#                 _confirm_adb_rm "<description>" <adb-path>
+#----------------
+
+# List files on Android device via adb as a tree.
+# Usage: _adb_tree <adb-path>
+_adb_tree() {
+  local adbpath="$1"
+  local tmpdir=$(mktemp -d)
+  local mirror="$tmpdir/tree"
+  mkdir -p "$mirror"
+
+  adb shell "cd '$adbpath' && find . -type d" 2>/dev/null \
+    | tail -n +2 | while IFS= read -r d; do
+        local rel=${d#./}
+        [[ -z "$rel" ]] && continue
+        mkdir -p "$mirror/$rel"
+      done
+  adb shell "cd '$adbpath' && find . -type f" 2>/dev/null \
+    | while IFS= read -r f; do
+        local rel=${f#./}
+        [[ -z "$rel" ]] && continue
+        mkdir -p "$mirror/$(dirname "$rel")"
+        : > "$mirror/$rel"
+      done
+
+  local count=$(adb shell "cd '$adbpath' && find . -type f" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$count" -eq 0 ]]; then
+    echo "No files on phone: $adbpath"
+  else
+    eza --tree --icons=always "$mirror" | tail -n +2
+  fi
+  rm -rf "$tmpdir"
+}
+
+# Confirm and rm files on Android device via adb.
+# Usage: _confirm_adb_rm "<description>" <adb-path>
+_confirm_adb_rm() {
+  local desc="$1"
+  local adbpath="$2"
+  local tmpdir=$(mktemp -d)
+  local mirror="$tmpdir/tree"
+  mkdir -p "$mirror"
+
+  adb shell "cd '$adbpath' && find . -type d" 2>/dev/null \
+    | tail -n +2 | while IFS= read -r d; do
+        local rel=${d#./}
+        [[ -z "$rel" ]] && continue
+        mkdir -p "$mirror/$rel"
+      done
+  adb shell "cd '$adbpath' && find . -type f" 2>/dev/null \
+    | while IFS= read -r f; do
+        local rel=${f#./}
+        [[ -z "$rel" ]] && continue
+        mkdir -p "$mirror/$(dirname "$rel")"
+        : > "$mirror/$rel"
+      done
+
+  local count=$(adb shell "cd '$adbpath' && find . -type f" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$count" -eq 0 ]]; then
+    rm -rf "$tmpdir"
+    echo "No files to delete on phone: $desc ($adbpath)"
+    return 0
+  fi
+
+  echo "Files to delete on phone ($desc):  ($adbpath)"
+  eza --tree --icons=always "$mirror" | tail -n +2
+  rm -rf "$tmpdir"
+
+  read -q "?Delete $count file(s) listed above? [y/N] "
+  local reply_status=$?
+  echo
+  if [[ $reply_status -ne 0 ]]; then
+    echo "Cancelled."
+    return 1
+  fi
+  adb shell "rm -rv '$adbpath'/*"
+}

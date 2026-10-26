@@ -1,0 +1,9 @@
+<% root_dir = ENV['CS'] || ENV['HOME'] %>
+<% bnk_dir = ENV['BNK'] || ENV['HOME'] %>
+
+name: LM
+root: <%= bnk_dir %>
+
+windows:
+  - Shell:
+      root: <%= bnk_dir %>/flows

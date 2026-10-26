@@ -11,7 +11,8 @@
 
 ### User home directory
 
-export UHOME="/mnt/c/Users/efournier"
+# Set WINUSER in ~/.zsh/.secrets when the Windows profile name differs from the Linux user.
+export UHOME="/mnt/c/Users/${WINUSER:-$USER}"
 
 ### Data directory
 
@@ -169,7 +170,7 @@ presentation() {
 ### Markdown
 
 markdown() { 
-  local app_location="/mnt/c/Users/efournier/AppData/Local/Google/Chrome SxS/Application/chrome.exe"
+  local app_location="$UHOME/AppData/Local/Google/Chrome SxS/Application/chrome.exe"
 
   [[ -z "$1" ]] \
     && echo "ERROR: Must supply path" \

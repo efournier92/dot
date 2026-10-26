@@ -1,4 +1,4 @@
-<% root_dir = ENV['CS'] %>
+<% root_dir = ENV['CS'] || ENV['HOME'] %>
 
 name: ILEC
 root: <%= root_dir %>/lecoursville

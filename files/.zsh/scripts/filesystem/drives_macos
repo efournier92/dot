@@ -12,11 +12,11 @@
 uuid_bnk="9429C154-E360-4A84-8993-C3704D11DC21"
 uuid_extA="A1888CE8-E627-4A14-8955-91C14E6BF7A3"
 uuid_extB="5ED165AE-0BB3-4C44-A5C2-BC15CBB65633"
-uuid_extC=""
-uuid_extCM=""
+uuid_extC="294B7D9D-37CE-47E7-A49F-18AC56CA2DF2"
+uuid_extCM="EA7F2904-1441-41FC-BCEA-0DA30DFF02EF"
 uuid_bkA="1B00D5A7-E459-3EA4-97F0-2A24CBBF9179"
 uuid_bkB="6C4B3BDB-8581-3C30-AC53-F213CA12412C"
-uuid_bkC=""
+uuid_bkC="BC013274-5432-348B-A525-7E7AA74CE9F2"
 uuid_md="7F412531-90B1-4E3A-BD65-418382D2ABC5"
 
 ## Mountpoints
@@ -71,7 +71,7 @@ export EXTC="$MNT/extC"
 
 #### Mount
 
-alias m_extC="$ZSCRIPTS/mount/mount_macos_veracrypt $EXTC"
+alias m_extC="$ZSCRIPTS/mount/mount_macos_veracrypt $uuid_extC $EXTC"
 
 #### Unmount
 
@@ -194,7 +194,7 @@ alias bk_extACM="sudo $ZSCRIPTS/backup/backup_dir_rsync $EXTA/Media $EXTCM/Media
 
 ### Backup extB to extC
 
-alias bk_extBC="sudo $ZSCRIPTS/backup/backup_dir_rsync $EXTB $EXTC /Media/** --delete"
+alias bk_extBC="sudo $ZSCRIPTS/backup/backup_dir_rsync $EXTB $EXTC --delete --exclude='/Media/**'"
 
 ### Backup extA to MD
 

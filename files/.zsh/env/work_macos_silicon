@@ -11,7 +11,7 @@
 
 ### Secrets
 
-source "$ZZSH/.secrets"
+[[ -f "$ZZSH/.secrets" ]] && source "$ZZSH/.secrets"
 
 ### Bnk directory
 
@@ -94,6 +94,10 @@ alias vlc='/Applications/VLC.app/Contents/MacOS/VLC'
 ## Llm
 
 alias lm="claude"
+alias lmc="claude --model claude-sonnet-5-5 --effort medium --permission-mode auto"
+alias lmso5="claude --model claude-opus-5-5 --effort medium --permission-mode auto"
+alias lmso4="claude --model claude-opus-4-6 --effort medium --permission-mode auto"
+alias update_claude="$ZSCRIPTS/environment/update_claude_code"
 
 ### Vim
 
@@ -102,6 +106,8 @@ alias lm="claude"
 alias agile_ticket_create="$ZSCRIPTS/development/agile_ticket_create"
 alias docker_clean="$ZSCRIPTS/development/docker_clean"
 alias docker_rebuild="$ZSCRIPTS/development/docker_rebuild"
+alias docker_build_warm="$ZSCRIPTS/development/docker_build"
+alias docker_build_cold="$ZSCRIPTS/development/docker_build --cold"
 alias killme="$USCRIPTS/km"
 graphql_generate() {
   local last_dir="$(pwd)"

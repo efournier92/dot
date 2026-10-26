@@ -1,5 +1,5 @@
-<% snc_dir = ENV['SNC'] %>
-<% hle_dir = ENV['HLE'] %>
+<% snc_dir = ENV['SNC'] || ENV['HOME'] %>
+<% hle_dir = ENV['HLE'] || ENV['HOME'] %>
 
 name: NTE
 root: <%= snc_dir %>

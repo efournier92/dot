@@ -13,8 +13,7 @@ get_story_contents() {
   local ticket_id="$2"
   local ticket_title="$3"
 
-  local company_name="savvylabs"
-  local ticket_url="https://${company_name}.atlassian.net/browse/${ticket_id}"
+  local ticket_url="${TICKET_URL_BASE:?set TICKET_URL_BASE}/browse/${ticket_id}"
 
   local ticket_title_with_id="$ticket_id | $ticket_title"
 
@@ -32,6 +31,10 @@ cat << EOF
 ## Acceptance Criteria
 
 - TODO
+
+## Outcomes
+
+## Testing Notes
 
 ## Details
 
@@ -57,11 +60,11 @@ cat << EOF
 
 - 
 
-## Git
+## Git | 1 | TODO
 
 ### Branch
 
-- $ticket_id
+- 
 
 ### Commits
 
@@ -71,22 +74,67 @@ cat << EOF
 
 #### Date
 
--
+- 
 
 #### Url
 
--
+- 
 
 #### Title
 
-- $ticket_title_with_id
+- 
 
 #### Comment
 
 \`\`\`text
 ## Ticket
 
-- [$ticket_id]($ticket_url)
+- []()
+
+## Purpose
+
+- 
+
+## Changes
+
+- 
+
+\`\`\`
+
+## Git | N | TODO
+
+### Branch
+
+- 
+
+### Commits
+
+#### TODO
+
+### Pull Request
+
+#### Date
+
+- 
+
+#### Url
+
+- 
+
+#### Title
+
+- 
+
+#### Comment
+
+\`\`\`text
+## Ticket
+
+- []()
+
+## Purpose
+
+- 
 
 ## Changes
 
@@ -99,6 +147,11 @@ cat << EOF
 ### Messages | Slack | \`#\`
 
 #### E | TODO
+
+## Prompts
+
+\`\`\`text
+\`\`\`
 
 ## Code
 

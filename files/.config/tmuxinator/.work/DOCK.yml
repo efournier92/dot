@@ -1,0 +1,24 @@
+# Dock pane requires `lazydocker` on PATH.
+<% home_dir = ENV['HOME'] %>
+<% work_dir = ENV['WORK'] || ENV['HOME'] %>
+
+name: DOCK
+root: <%= work_dir %>/backend-service
+
+windows:
+  - Dock:
+      root: <%= work_dir %>/backend-service
+      panes:
+        - lazydocker
+  - Make:
+      root: <%= work_dir %>/backend-service
+      panes:
+        - make up
+  - Usage:
+      root: <%= work_dir %>/backend-service
+      panes:
+        - claude --model haiku /usage
+  - Aws:
+      root: <%= home_dir %>/.aws
+      panes:
+        -

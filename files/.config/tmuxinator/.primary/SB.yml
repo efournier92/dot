@@ -2,7 +2,7 @@
 <% sb_user = ENV['sb_username'] %>
 <% sb_host = ENV['sb_server_name'] %>
 <% sb_domain = ENV['sb_server_domain'] %>
-<% hle = ENV['HLE'] %>
+<% hle = ENV['HLE'] || ENV['HOME'] %>
 
 name: sb
 root: <%= home %>

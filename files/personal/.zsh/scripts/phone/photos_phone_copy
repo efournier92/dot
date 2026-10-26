@@ -1,0 +1,128 @@
+#!/bin/bash
+
+#----------------
+# Name          : photos_phone_copy
+# Description   : Pull phone DCIM, stage Screenshots, move the rest, retire DCIM.
+# Author        : E Fournier
+# Dependencies  : adb, rsync
+# Example Usage : ./photos_phone_copy
+#----------------
+
+shopt -s dotglob
+shopt -s nullglob
+
+# Stop execution if any required environment variable is missing
+ensure_valid_paths() {
+  local photos_root="$1"
+  local screenshots_root="$2"
+  local phone_dir="$3"
+
+  if [[ -z "$photos_root" || -z "$screenshots_root" || -z "$phone_dir" ]]; then
+    echo "ERROR: Missing environment variables."
+    echo "FLOWS_PHONE_PHOTOS:      $photos_root"
+    echo "FLOWS_PHONE_SCREENSHOTS: $screenshots_root"
+    echo "PHONE_PHOTOS:            $phone_dir"
+    exit 1
+  fi
+}
+
+ensure_directories_exist() {
+  local photos_root="$1"
+  local input_dir="$2"
+
+  mkdir -p "$photos_root" "$input_dir"
+}
+
+pull_dcim() {
+  local phone_dir="$1"
+  local photos_root="$2"
+
+  adb pull "$phone_dir" "$photos_root"
+}
+
+# Screenshots land flat in Phone_Screenshots/_Input, never overwriting
+stage_screenshots() {
+  local dcim="$1"
+  local input_dir="$2"
+
+  [[ -d "$dcim/Screenshots" ]] || return 0
+
+  if rsync -a --ignore-existing "$dcim/Screenshots/" "$input_dir/"; then
+    rm -rf "$dcim/Screenshots"
+    echo "Screenshots staged: $input_dir"
+  else
+    echo "ERROR: Screenshots move failed; left $dcim/Screenshots in place." >&2
+  fi
+}
+
+# Same-named files are skipped (destination wins); same-named directories
+# are merged so only new files land.
+merge_into_photos() {
+  local entry="$1"
+  local photos_root="$2"
+
+  local name
+  name="$(basename "$entry")"
+
+  if rsync -a --ignore-existing "$entry" "$photos_root/"; then
+    rm -rf "$entry"
+    echo "Moved: $name"
+    return 0
+  fi
+
+  echo "ERROR: Merge failed; left $name in place." >&2
+  return 1
+}
+
+retire_dcim() {
+  local dcim="$1"
+  local moved="$2"
+  local failed="$3"
+  local photos_root="$4"
+
+  if rmdir "$dcim" 2>/dev/null; then
+    echo "DCIM retired: $moved moved, $failed failed under $photos_root"
+  else
+    echo "WARNING: DCIM not empty; left at $dcim" >&2
+  fi
+}
+
+main() {
+  local photos_root="$FLOWS_PHONE_PHOTOS"
+  local screenshots_root="$FLOWS_PHONE_SCREENSHOTS"
+  local phone_dir="$PHONE_PHOTOS"
+
+  ensure_valid_paths "$photos_root" "$screenshots_root" "$phone_dir"
+
+  local input_dir="$screenshots_root/_Input"
+  local dcim="$photos_root/DCIM"
+  local entry moved=0 failed=0
+
+  ensure_directories_exist "$photos_root" "$input_dir"
+
+  if ! pull_dcim "$phone_dir" "$photos_root"; then
+    echo "ERROR: adb pull failed; nothing moved." >&2
+    exit 1
+  fi
+
+  if [[ ! -d "$dcim" ]]; then
+    echo "ERROR: No DCIM directory at $dcim" >&2
+    exit 1
+  fi
+
+  stage_screenshots "$dcim" "$input_dir"
+
+  for entry in "$dcim"/*; do
+    [[ "$entry" == "$dcim/Screenshots" ]] && continue
+
+    if merge_into_photos "$entry" "$photos_root"; then
+      moved=$(( moved + 1 ))
+    else
+      failed=$(( failed + 1 ))
+    fi
+  done
+
+  retire_dcim "$dcim" "$moved" "$failed" "$photos_root"
+}
+
+main "$@"

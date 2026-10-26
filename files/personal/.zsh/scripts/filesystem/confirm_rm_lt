@@ -1,0 +1,33 @@
+#!/bin/zsh
+
+#----------------
+# Name          : confirm_rm_lt
+# Description   : Confirm and rm files, displaying a tree via `lt`
+#                 (eza --tree --icons). Designed to be sourced and then
+#                 called from aliases.
+# Author        : E Fournier
+# Dependencies  : eza
+# Example Usage : _confirm_rm_lt "<description>" <tree-path> <delete-target>...
+#----------------
+
+# Confirm and rm, displaying a tree via `lt` (eza --tree --icons).
+# Usage: _confirm_rm_lt "<description>" <tree-path> <delete-target>...
+_confirm_rm_lt() {
+  local desc="$1"; shift
+  local tree="$1"; shift
+  if [[ $# -eq 0 ]]; then
+    echo "No files to delete: $desc"
+    return 0
+  fi
+  local count=$(find "$@" -type f 2>/dev/null | wc -l | tr -d ' ')
+  echo "Files to delete ($desc):"
+  eza --tree --icons=always "$tree"
+  read -q "?Delete $count file(s)? [y/N] "
+  local reply_status=$?
+  echo
+  if [[ $reply_status -ne 0 ]]; then
+    echo "Cancelled."
+    return 1
+  fi
+  \rm -rfv "$@"
+}

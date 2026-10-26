@@ -5,7 +5,7 @@
 # Description   : Synchronizes two directories using rsync.
 # Author        : E Fournier
 # Dependencies  : rsync
-# Example Usage : ./bk_sync <source_dir> <dest_dir> [--dry] [--delete]
+# Example Usage : ./bk_sync <source_dir> <dest_dir> [--dry] [--delete] [--exclude='/Media/**' (repeatable)]
 #----------------
 
 set -euo pipefail
@@ -42,6 +42,7 @@ print_info() {
   local dest_dir="$2"
   local dry_run="$3"
   local delete_files="$4"
+  local excludes=("${@:5}")
 
   echo "----------------------------------------"
   echo " Syncing:"
@@ -49,8 +50,30 @@ print_info() {
   echo "   dest_dir:   $dest_dir"
   echo "   dry_run:    $dry_run"
   echo "   delete:     $delete_files"
+  if (( ${#excludes[@]} > 0 )); then
+    printf '   exclude:    %s\n' "${excludes[@]}"
+  else
+    echo "   exclude:    (none)"
+  fi
   echo "----------------------------------------"
   echo
+}
+
+# /dir/** (or dir/**) -> /dir (or dir): rsync skips the whole subtree when the
+# dir itself is excluded; a bare /** would only empty the dir.
+normalize_exclude() {
+  local pat="$1"
+
+  # Trailing '/*' after '**' adds nothing; drop trailing slashes first
+  while [[ "$pat" == */ ]]; do
+    pat="${pat%/}"
+  done
+
+  if [[ "$pat" == *"/**" ]]; then
+    pat="${pat%"/**"}"
+  fi
+
+  printf '%s' "$pat"
 }
 
 sync_dirs() {
@@ -58,6 +81,7 @@ sync_dirs() {
   local dest_dir="$2"
   local dry_run="$3"
   local delete_files="$4"
+  local excludes=("${@:5}")
 
   local rsync_opts=(-avh --info=progress2 --modify-window=2 --omit-dir-times --omit-link-times --inplace --no-whole-file)
 
@@ -65,6 +89,10 @@ sync_dirs() {
 
   [[ "$delete_files" == "true" && "$dry_run" == "false" ]] && rsync_opts+=(--delete)
 
+  local pat
+  for pat in ${excludes[@]+"${excludes[@]}"}; do
+    rsync_opts+=(--exclude="$(normalize_exclude "$pat")")
+  done
 
   rsync "${rsync_opts[@]}" "$source_dir"/ "$dest_dir"/
 }
@@ -75,17 +103,38 @@ main() {
 
   local dry_run="false"
   local delete_files="false"
+  local excludes=()
 
   validate_args "$source_dir" "$dest_dir"
 
-  for arg in "$@"; do
-    [[ "$arg" == "--dry" ]] && dry_run="true"
-    [[ "$arg" == "--delete" ]] && delete_files="true"
+  local remaining=("${@:3}")
+  local i=0
+  while (( i < ${#remaining[@]} )); do
+    local arg="${remaining[$i]}"
+    case "$arg" in
+      --dry) dry_run="true" ;;
+      --delete) delete_files="true" ;;
+      --exclude=*) excludes+=("${arg#--exclude=}") ;;
+      --exclude)
+        if (( i + 1 >= ${#remaining[@]} )); then
+          echo "ERROR: --exclude requires a PATTERN argument"
+          exit 1
+        fi
+        i=$((i + 1))
+        excludes+=("${remaining[$i]}")
+        ;;
+      *)
+        echo "ERROR: unknown option: $arg"
+        exit 1
+        ;;
+    esac
+    i=$((i + 1))
   done
 
-  print_info "$source_dir" "$dest_dir" "$dry_run" "$delete_files"
+  # "${arr[@]+...}": expand safely even when empty under set -u on bash 3.2
+  print_info "$source_dir" "$dest_dir" "$dry_run" "$delete_files" ${excludes[@]+"${excludes[@]}"}
 
-  sync_dirs "$source_dir" "$dest_dir" "$dry_run" "$delete_files"
+  sync_dirs "$source_dir" "$dest_dir" "$dry_run" "$delete_files" ${excludes[@]+"${excludes[@]}"}
 }
 
 main "$@"

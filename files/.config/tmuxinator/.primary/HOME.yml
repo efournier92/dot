@@ -1,4 +1,4 @@
-<% start_dir = ENV['START'] %>
+<% start_dir = ENV['START'] || ENV['HOME'] %>
 
 name: HOME
 root: <%= start_dir %>
