@@ -26,7 +26,6 @@ typeset -a TAPS=(
 
 typeset -a FORMULAS=(
   asdf
-  duti
   eza
   fzf
   fzf-tab
@@ -50,9 +49,43 @@ typeset -a CASKS=(
 )
 
 readonly DOTFILES_REPO="efournier92/dot"
-readonly DOTFILES_DIR="$HOME/bnk/cs/dot"
-readonly DOTFILES_SRC="$DOTFILES_DIR/files"
+DOTFILES_DIR="${DOTFILES_DIR:-${0:A:h:h:h:h:h}}"
+DOTFILES_SRC="$DOTFILES_DIR/files"
 readonly ENV_NAME_FILE="$HOME/.env_name"
+
+# Only these paths are ever written under $HOME. Each entry is mirrored on
+# its own, so the installer can never touch an unrelated home file.
+typeset -a MANAGED_PATHS=(
+  .zshenv
+  .vimrc
+  .tmux.conf
+  .zsh
+  .vim/autoload
+  .vim/colors
+  .vim/dict
+  .vim/functions
+  .vim/thesaurus
+  .config/ghostty
+  .config/git
+  .config/lazygit
+  .config/nvim
+  .config/opencode
+  .config/sesh
+  .config/starship.toml
+  .config/tmuxinator/.primary
+  .config/tmuxinator/.work
+)
+
+# Repo-relative source -> home-relative destination for files whose names
+# differ on the two sides. The local ~/.gitconfig is never written.
+typeset -A PATH_MAP=(
+  [.gitconfig]=.config/git/config
+)
+
+# Copied into $HOME additively; never pruned.
+typeset -a ADDITIVE_PATHS=(
+  .claude
+)
 
 # Files in $HOME that the user manages and the script must not touch.
 # Excluded from the rsync entirely, so a preexisting local version is
@@ -69,6 +102,24 @@ typeset -a PERSONAL_ENV_PROFILES=(
   primary_macos
   primary_common
 )
+
+typeset -a PHASES=(
+  brew
+  dotfiles
+  verify
+)
+
+typeset -gi DRY_RUN=0
+typeset -gi YES=0
+typeset -gi APPS=0
+typeset -gi UPGRADE_ALL=0
+typeset -gi UNINSTALL=0
+typeset -gi RESUME=0
+typeset -gi HELP=0
+typeset -g ENV_NAME_ARG=""
+typeset -g ONLY_PHASE=""
+typeset -ga RSYNC_FILTER_ARGS=()
+typeset -ga OVERLAY_EXCLUDES=()
 
 # -----------------------------------------------------------------------------
 # # --- Misc ---
@@ -111,6 +162,110 @@ log_info() { print -P "%F{cyan}[*]%f $1"; }
 log_ok()   { print -P "%F{green}[+]%f $1"; }
 log_warn() { print -P "%F{yellow}[!]%f $1" >&2; }
 log_err()  { print -P "%F{red}[x]%f $1" >&2; }
+
+# -----------------------------------------------------------------------------
+# # --- Arguments & preflight ---
+# -----------------------------------------------------------------------------
+usage() {
+  cat <<'EOF'
+Usage: bootstrap [options]
+
+Install dotfiles and optional macOS apps from this repo.
+
+Options:
+  --dry-run          Show what would change; write nothing
+  --yes              Non-interactive; skip confirmation prompts
+  --apps             Install Homebrew formulae and casks
+  --upgrade-all      Run 'brew upgrade' during the apps phase
+  --env-name NAME    Select the zsh env profile without the menu
+  --repo PATH        Use PATH as the dotfiles repo root
+  --uninstall        Restore managed paths from the newest backup
+  --only PHASE       Run only brew, dotfiles, or verify
+  --resume           Skip phases already recorded as complete
+  --help             Show this help
+EOF
+}
+
+parse_args() {
+  while (( $# )); do
+    case "$1" in
+      --dry-run) DRY_RUN=1 ;;
+      --yes) YES=1 ;;
+      --apps) APPS=1 ;;
+      --upgrade-all) UPGRADE_ALL=1 ;;
+      --env-name)
+        if (( $# < 2 )); then usage >&2; exit 2; fi
+        ENV_NAME_ARG="$2"
+        shift
+        ;;
+      --env-name=*) ENV_NAME_ARG="${1#*=}" ;;
+      --repo)
+        if (( $# < 2 )); then usage >&2; exit 2; fi
+        DOTFILES_DIR="${2:A}"
+        DOTFILES_SRC="$DOTFILES_DIR/files"
+        shift
+        ;;
+      --repo=*)
+        DOTFILES_DIR="${${1#*=}:A}"
+        DOTFILES_SRC="$DOTFILES_DIR/files"
+        ;;
+      --uninstall) UNINSTALL=1 ;;
+      --only)
+        if (( $# < 2 )); then usage >&2; exit 2; fi
+        ONLY_PHASE="$2"
+        shift
+        ;;
+      --only=*) ONLY_PHASE="${1#*=}" ;;
+      --resume) RESUME=1 ;;
+      --help|-h) HELP=1 ;;
+      *) usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+  if [[ -n "$ONLY_PHASE" && "$ONLY_PHASE" != (brew|dotfiles|verify) ]]; then
+    log_err "--only must be one of: brew, dotfiles, verify"
+    exit 2
+  fi
+}
+
+# Read-only checks. Always runs before any phase writes anything.
+preflight() {
+  if [[ -z "${HOME:-}" || ! -d "$HOME" ]]; then
+    log_err "HOME is not set or is not a directory"
+    return 1
+  fi
+  if (( ! UNINSTALL )) && [[ ! -d "$DOTFILES_SRC" ]]; then
+    log_err "dotfiles source not found at $DOTFILES_SRC"
+    return 1
+  fi
+  if ! command_exists rsync; then
+    log_err "required command 'rsync' not found on PATH"
+    return 1
+  fi
+  if rsync --version 2>&1 | head -n 1 | grep -qi openrsync; then
+    log_err "openrsync detected; install GNU rsync (>=3) and put it first on PATH"
+    return 1
+  fi
+
+  local p
+  local -i conflict=0
+  for p in "${MANAGED_PATHS[@]}"; do
+    if [[ "$DOTFILES_DIR" == "$HOME/$p" || "$DOTFILES_DIR" == "$HOME/$p"/* ]]; then
+      log_err "refusing to run: repo $DOTFILES_DIR is inside managed destination $HOME/$p"
+      conflict=1
+    fi
+  done
+  (( conflict == 0 )) || return 1
+
+  if (( ! UNINSTALL )) && (( ! YES )) && (( ! DRY_RUN )) && [[ ! -t 0 ]]; then
+    log_err "not a TTY: pass --yes (or --dry-run) to run non-interactively"
+    return 2
+  fi
+
+  log_info "dotfiles: $DOTFILES_DIR"
+  log_info "managed paths: ${#MANAGED_PATHS[@]} (+${#ADDITIVE_PATHS[@]} additive)"
+  return 0
+}
 
 # -----------------------------------------------------------------------------
 # # --- Brew helpers ---
@@ -254,30 +409,101 @@ prompt_menu() {
 replace_first_line() {
   local file="$1"
   local value="$2"
-  local tmp
+  local tmp mode
   tmp="$(mktemp)" || return 1
+  mode="$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null)"
   {
     print -r -- "$value"
     tail -n +2 "$file"
   } > "$tmp" || { rm -f "$tmp"; return 1; }
+  [[ -n "$mode" ]] && chmod "$mode" "$tmp"
   mv "$tmp" "$file"
 }
 
-# Mirror dotfiles to $HOME with:
+# Shared filter and excludes for every manifest entry.
+_build_filter_args() {
+  local filter="$1"
+  RSYNC_FILTER_ARGS=(
+    --filter="merge $filter"
+    --exclude=.git
+    --exclude=.claude
+    --exclude=.dotfiles.bak
+    --exclude=.DS_Store
+    --exclude='*.swp'
+    --exclude=plugins.zsh
+    --exclude=.antidote.load
+    --exclude=/personal/
+    --exclude=/.env_name
+  )
+}
+
+# The personal overlay writes into destinations the main pass also owns.
+# While the overlay is active, exclude those exact paths from the main pass
+# so its --delete cannot remove files the overlay just wrote.
+_overlay_excludes() {
+  local p="$1" env_name="$2" f rel
+  OVERLAY_EXCLUDES=()
+  [[ -n "$env_name" ]] && (( ${PERSONAL_ENV_PROFILES[(Ie)$env_name]} )) || return 0
+  [[ -d "$DOTFILES_SRC/personal" ]] || return 0
+  while IFS= read -r f; do
+    rel="${f#$DOTFILES_SRC/personal/}"
+    [[ "$rel" == "$p"/* ]] || continue
+    OVERLAY_EXCLUDES+=(--exclude="/${rel#$p/}")
+  done < <(find "$DOTFILES_SRC/personal" -type f -print)
+}
+
+# Dry, itemized pass over every manifest entry.
+_itemized_dry_run() {
+  local filter="$1" env_name="$2" p src dst key
+  _build_filter_args "$filter"
+  local -a common=( -a -n --itemize-changes )
+  local -a extra
+  for p in "${MANAGED_PATHS[@]}"; do
+    src="$DOTFILES_SRC/$p"
+    [[ -e "$src" ]] || continue
+    dst="$HOME/$p"
+    extra=()
+    [[ "$p" == .config/git ]] && extra+=(--exclude=config)
+    _overlay_excludes "$p" "$env_name"
+    extra+=("${OVERLAY_EXCLUDES[@]}")
+    if [[ -d "$src" ]]; then
+      rsync "${common[@]}" "${extra[@]}" "${RSYNC_FILTER_ARGS[@]}" \
+        --delete "$src/" "$dst/" || return 1
+    elif [[ ! -d "${dst:h}" ]]; then
+      # rsync cannot itemize into a missing parent during a dry run.
+      print -r -- ">f+++++++++ $p"
+    else
+      rsync "${common[@]}" "${extra[@]}" "${RSYNC_FILTER_ARGS[@]}" \
+        "$src" "$dst" || return 1
+    fi
+  done
+  for p in "${ADDITIVE_PATHS[@]}"; do
+    src="$DOTFILES_SRC/$p"
+    [[ -d "$src" ]] || continue
+    rsync "${common[@]}" "${RSYNC_FILTER_ARGS[@]}" "$src/" "$HOME/$p/" || return 1
+  done
+  for key in "${(@k)PATH_MAP}"; do
+    src="$DOTFILES_SRC/$key"
+    dst="$HOME/${PATH_MAP[$key]}"
+    [[ -f "$src" ]] || continue
+    if [[ ! -d "${dst:h}" ]]; then
+      print -r -- ">f+++++++++ ${PATH_MAP[$key]}"
+    else
+      rsync "${common[@]}" "${RSYNC_FILTER_ARGS[@]}" "$src" "$dst" || return 1
+    fi
+  done
+}
+
+# Mirror only the manifest paths, one rsync per entry, with:
 #   - OS-aware filtering of ~/.zsh/env/ (only OS-relevant profiles synced)
-#   - rsync --backup --backup-dir=<archive> (every replaced file moves
-#     into $HOME/.dotfiles.bak/dotfiles_<ts>/, preserving relative paths)
-#   - rsync --delete (stale env files from prior machine state are pruned)
-#   - PRESERVE_HOME_FILES excluded from the rsync entirely so the
-#     user's hand-curated copies in $HOME are never overwritten, even
-#     when the dotfiles source carries a different version
+#   - rsync --backup --backup-dir=<archive> (replaced files are archived)
+#   - rsync --delete on directories (stale files are pruned in-place)
+#   - .env_name excluded, so the machine-local profile is never written
 rsync_dotfiles_to_home() {
   if [[ ! -d "$DOTFILES_SRC" ]]; then
     log_warn "dotfiles source not found at $DOTFILES_SRC — skipping mirror"
     return 1
   fi
-
-  _ensure_env_name
 
   local os
   if ! os="$(detect_os)"; then
@@ -287,6 +513,9 @@ rsync_dotfiles_to_home() {
 
   local env_name=""
   env_name="$(read_active_env_name 2>/dev/null)"
+  if (( DRY_RUN )) && [[ -n "$ENV_NAME_ARG" ]]; then
+    env_name="$ENV_NAME_ARG"
+  fi
   if [[ -z "$env_name" ]]; then
     log_info "no active env_name — applying OS filter only"
   else
@@ -294,60 +523,159 @@ rsync_dotfiles_to_home() {
   fi
 
   local filter
-  filter="$(_build_env_filter "$os" "$env_name")"
+  filter="$(_build_env_filter "$os" "$env_name")" || return 1
+
+  if (( DRY_RUN )); then
+    log_info "dry-run: no files will be written"
+    if ! _itemized_dry_run "$filter" "$env_name"; then
+      rm -f "$filter"
+      log_err "dry-run failed"
+      return 1
+    fi
+    rm -f "$filter"
+    log_ok "dry-run complete (no changes applied)"
+    return 0
+  fi
 
   local -r ts="$(date +%Y-%m-%d-%H%M%S)"
   local -r archive_root="$HOME/.dotfiles.bak/dotfiles_${ts}"
-  if ! mkdir -p "$archive_root"; then
+
+  # Collision gate: show what the mirror would update or delete before any
+  # write, and require explicit confirmation. --yes bypasses the prompt.
+  if (( ! YES )); then
+    local output
+    if ! output="$(_itemized_dry_run "$filter" "$env_name" 2>/dev/null)"; then
+      rm -f "$filter"
+      log_err "collision check failed"
+      return 1
+    fi
+    local -a lines=("${(@f)output}")
+    local line
+    local -i changed=0 deleted=0 shown=0
+    for line in "${lines[@]}"; do
+      [[ "$line" == '>f'* ]] && (( changed++ ))
+      [[ "$line" == '*deleting'* ]] && (( deleted++ ))
+    done
+    if (( changed + deleted > 0 )); then
+      log_warn "mirror would update $changed file(s) and delete $deleted path(s)"
+      for line in "${lines[@]}"; do
+        [[ "$line" == '>f'* || "$line" == '*deleting'* ]] || continue
+        print -r -- "  $line"
+        (( ++shown >= 40 )) && break
+      done
+    fi
+    local reply=""
+    print -n "Proceed? [y/N] "
+    read -r reply || reply=""
+    if [[ "$reply" != [yY] ]]; then
+      rm -f "$filter"
+      log_err "aborted by user"
+      return 1
+    fi
+  fi
+
+  if ! mkdir -p "$HOME/.dotfiles.bak" || ! chmod 700 "$HOME/.dotfiles.bak"; then
+    log_err "failed to prepare $HOME/.dotfiles.bak"
+    rm -f "$filter"
+    return 1
+  fi
+  if ! mkdir -p -m 700 "$archive_root"; then
     log_err "failed to create backup directory: $archive_root"
     rm -f "$filter"
     return 1
   fi
-  log_ok "created backup directory: $archive_root"
-  log_info "archiving replaced dotfiles → $archive_root"
-  log_info "mirroring $DOTFILES_SRC → $HOME/ (os=$os)"
-
-  # Build rsync argv as an array so we can layer the preserve-list
-  # excludes on top of the static ones without forking the line.
-  local -a rsync_args=(
-    -a -I --delete
-    --backup --backup-dir="$archive_root"
-    --filter="merge $filter"
-    --exclude=.git
-    --exclude=.DS_Store
-    --exclude='*.swp'
-    --exclude=personal/
-  )
-  local pf
-  for pf in "${PRESERVE_HOME_FILES[@]}"; do
-    rsync_args+=(--exclude="$pf")
-  done
-
-  if ! rsync "${rsync_args[@]}" "$DOTFILES_SRC/" "$HOME/"; then
+  if ! print -r -- "$archive_root" > "$HOME/.dotfiles.bak/latest"; then
+    log_err "failed to write $HOME/.dotfiles.bak/latest"
     rm -f "$filter"
-    log_warn "rsync failed — continuing"
     return 1
   fi
-  rm -f "$filter"
-  # personal/ maps onto the shared $HOME paths (eg. personal/.zsh/env/primary_macos)
-  # rather than to a $HOME/personal directory, so the main pass always skips it.
-  # Personal machines get it as a second, additive pass: no --delete, because an
-  # overlay must never prune files the main pass owns.
+  log_ok "archive: $archive_root"
+  log_info "mirroring managed paths from $DOTFILES_SRC (os=$os)"
+
+  _build_filter_args "$filter"
+  local -a base=( -a --backup --backup-dir="$archive_root" )
+  local p src dst key
+  local -a extra
+
+  # Directories first, so the mapped files below can never be pruned.
+  for p in "${MANAGED_PATHS[@]}"; do
+    src="$DOTFILES_SRC/$p"
+    [[ -d "$src" ]] || continue
+    dst="$HOME/$p"
+    if ! mkdir -p "$dst"; then
+      rm -f "$filter"
+      log_err "failed to create $dst"
+      return 1
+    fi
+    extra=()
+    [[ "$p" == .config/git ]] && extra+=(--exclude=config)
+    _overlay_excludes "$p" "$env_name"
+    extra+=("${OVERLAY_EXCLUDES[@]}")
+    if ! rsync "${base[@]}" "${extra[@]}" "${RSYNC_FILTER_ARGS[@]}" \
+      --delete "$src/" "$dst/"; then
+      rm -f "$filter"
+      log_err "rsync failed for $p"
+      return 1
+    fi
+  done
+
+  for p in "${MANAGED_PATHS[@]}"; do
+    src="$DOTFILES_SRC/$p"
+    [[ -f "$src" ]] || continue
+    dst="$HOME/$p"
+    if ! mkdir -p "${dst:h}"; then
+      rm -f "$filter"
+      log_err "failed to create ${dst:h}"
+      return 1
+    fi
+    if ! rsync "${base[@]}" "${RSYNC_FILTER_ARGS[@]}" "$src" "$dst"; then
+      rm -f "$filter"
+      log_err "rsync failed for $p"
+      return 1
+    fi
+  done
+
+  for key in "${(@k)PATH_MAP}"; do
+    src="$DOTFILES_SRC/$key"
+    dst="$HOME/${PATH_MAP[$key]}"
+    [[ -f "$src" ]] || continue
+    if ! mkdir -p "${dst:h}"; then
+      rm -f "$filter"
+      log_err "failed to create ${dst:h}"
+      return 1
+    fi
+    if ! rsync "${base[@]}" "${RSYNC_FILTER_ARGS[@]}" "$src" "$dst"; then
+      rm -f "$filter"
+      log_err "rsync failed for $key -> ${PATH_MAP[$key]}"
+      return 1
+    fi
+  done
+
+  for p in "${ADDITIVE_PATHS[@]}"; do
+    src="$DOTFILES_SRC/$p"
+    [[ -d "$src" ]] || continue
+    if ! rsync -a --backup --backup-dir="$archive_root" "$src/" "$HOME/$p/"; then
+      rm -f "$filter"
+      log_err "rsync failed for $p"
+      return 1
+    fi
+  done
+
+  # personal/ maps onto shared $HOME paths, so it is a second, additive pass:
+  # no --delete, because an overlay must never prune files the main pass owns.
   if (( ${PERSONAL_ENV_PROFILES[(Ie)$env_name]} )); then
     log_info "personal env_name — applying personal/ overlay"
-    if ! rsync -a -I --backup --backup-dir="$archive_root" \
+    if ! rsync -a --backup --backup-dir="$archive_root" \
       --exclude=.git --exclude=.DS_Store \
       "$DOTFILES_SRC/personal/" "$HOME/"; then
-      log_warn "personal overlay rsync failed — continuing"
+      rm -f "$filter"
+      log_err "personal overlay rsync failed"
       return 1
     fi
   fi
-  # Refresh a convenience symlink pointing at the latest archive, so
-  # `ls ~/.bak` always shows the most recent backup without needing
-  # to know the timestamp.
-  ln -sfnh "$archive_root" "$HOME/.bak" 2>/dev/null \
-    || log_warn "could not refresh ~/.bak symlink"
-  log_ok "dotfiles mirrored to $HOME (archive: $archive_root)"
+
+  rm -f "$filter"
+  log_ok "dotfiles mirrored (archive: $archive_root)"
   _chmod_exec_scripts
   _patch_asdf_dotfiles
 }
@@ -474,19 +802,68 @@ read_active_env_name() {
   print -r -- "$line"
 }
 
-# If $HOME/.env_name is missing, seed it from the dotfiles source. This
-# matters for downstream tooling (e.g. the env file picker) that reads
-# ~/.env_name directly; rsync would create it too, but we want it
-# present before we compute the filter.
+# If $HOME/.env_name is missing, seed line 1 with a real default before
+# appending the example, so the menu always has a usable default.
 _ensure_env_name() {
-  if [[ ! -e "$ENV_NAME_FILE" && -f "$DOTFILES_SRC/.env_name.example" ]]; then
-    log_info "creating $ENV_NAME_FILE from $DOTFILES_SRC/.env_name.example"
-    cp -p "$DOTFILES_SRC/.env_name.example" "$ENV_NAME_FILE" || return 1
-  elif [[ ! -e "$ENV_NAME_FILE" ]]; then
-    log_warn "$ENV_NAME_FILE missing — copy $DOTFILES_SRC/.env_name.example to $ENV_NAME_FILE"
+  [[ -e "$ENV_NAME_FILE" ]] && return 0
+  local default="${ENV_NAME_DEFAULT:-primary_macos}"
+  log_info "creating $ENV_NAME_FILE (default: $default)"
+  {
+    print -r -- "$default"
+    [[ -f "$DOTFILES_SRC/.env_name.example" ]] \
+      && cat "$DOTFILES_SRC/.env_name.example"
+  } > "$ENV_NAME_FILE" || {
+    log_err "failed to create $ENV_NAME_FILE"
     return 1
-  fi
+  }
   return 0
+}
+
+# Resolve the active env_name: --env-name wins, --yes keeps line 1, otherwise
+# present a de-duplicated menu with line 1 as the default.
+_choose_env_name() {
+  if [[ -n "$ENV_NAME_ARG" ]]; then
+    replace_first_line "$ENV_NAME_FILE" "$ENV_NAME_ARG" || return 1
+    log_ok "set env_name to '$ENV_NAME_ARG'"
+    return 0
+  fi
+
+  local current_env_name
+  current_env_name="$(head -n 1 "$ENV_NAME_FILE")"
+  current_env_name="${current_env_name## }"
+  current_env_name="${current_env_name%% }"
+
+  if (( YES )); then
+    if [[ -z "$current_env_name" ]]; then
+      current_env_name="${ENV_NAME_DEFAULT:-primary_macos}"
+      replace_first_line "$ENV_NAME_FILE" "$current_env_name" || return 1
+    fi
+    log_info "env_name: $current_env_name"
+    return 0
+  fi
+
+  typeset -aU choices
+  choices=("${(@f)$(read_env_name_choices "$ENV_NAME_FILE")}")
+  if (( ${#choices} == 0 )); then
+    log_warn "no candidate env names found in $ENV_NAME_FILE — skipping selection"
+    return 0
+  fi
+
+  local -i default_idx=1 ci
+  for (( ci = 1; ci <= ${#choices[@]}; ci++ )); do
+    if [[ "${choices[$ci]}" == "$current_env_name" ]]; then
+      default_idx=$ci
+      break
+    fi
+  done
+
+  local picked
+  picked="$(prompt_menu "Select env_name:" "$default_idx" "${choices[@]}")" || {
+    log_err "env_name selection aborted"
+    return 1
+  }
+  replace_first_line "$ENV_NAME_FILE" "$picked" || return 1
+  log_ok "set env_name to '$picked'"
 }
 
 # Build an rsync --filter file encoding the OS-aware env include rules.
@@ -500,7 +877,7 @@ _ensure_env_name() {
 #   5. Remaining OS-matching files – excluded (only relevant when env_name
 #      is set, to keep other-identity files off the machine).
 #
-# Naming convention (anchored to .zsh/env/):
+# Naming convention (anchored to env/ inside the .zsh sync):
 #   *_linux*   → Linux files  (common_linux, primary_linux_ubuntu_gnome, …)
 #   *_macos*   → macOS files  (common_macos, primary_macos, work_macos_m3, …)
 #   *_mac*     → macOS short  (work_mac; also matches *_macos*)
@@ -513,42 +890,42 @@ _build_env_filter() {
   {
     case "$os" in
       macos)
-        print -r -- "+ .zsh/env/common_macos"
+        print -r -- "+ env/common_macos"
         if [[ -n "$env_name" ]]; then
-          print -r -- "+ .zsh/env/${env_name}"
+          print -r -- "+ env/${env_name}"
         else
-          print -r -- '+ .zsh/env/*_mac*'
+          print -r -- '+ env/*_mac*'
         fi
-        print -r -- '- .zsh/env/*_linux*'
-        print -r -- '- .zsh/env/*_wsl*'
+        print -r -- '- env/*_linux*'
+        print -r -- '- env/*_wsl*'
         if [[ -n "$env_name" ]]; then
-          print -r -- '- .zsh/env/*_mac*'
+          print -r -- '- env/*_mac*'
         fi
         ;;
       linux)
-        print -r -- "+ .zsh/env/common_linux"
+        print -r -- "+ env/common_linux"
         if [[ -n "$env_name" ]]; then
-          print -r -- "+ .zsh/env/${env_name}"
+          print -r -- "+ env/${env_name}"
         else
-          print -r -- '+ .zsh/env/*_linux*'
+          print -r -- '+ env/*_linux*'
         fi
-        print -r -- '- .zsh/env/*_mac*'
-        print -r -- '- .zsh/env/*_macos*'
-        print -r -- '- .zsh/env/*_wsl*'
+        print -r -- '- env/*_mac*'
+        print -r -- '- env/*_macos*'
+        print -r -- '- env/*_wsl*'
         if [[ -n "$env_name" ]]; then
-          print -r -- '- .zsh/env/*_linux*'
+          print -r -- '- env/*_linux*'
         fi
         ;;
       wsl)
-        print -r -- "+ .zsh/env/common_wsl"
+        print -r -- "+ env/common_wsl"
         if [[ -n "$env_name" ]]; then
-          print -r -- "+ .zsh/env/${env_name}"
+          print -r -- "+ env/${env_name}"
         else
-          print -r -- '+ .zsh/env/*_wsl*'
+          print -r -- '+ env/*_wsl*'
         fi
-        print -r -- '- .zsh/env/*_mac*'
-        print -r -- '- .zsh/env/*_macos*'
-        print -r -- '- .zsh/env/*_linux*'
+        print -r -- '- env/*_mac*'
+        print -r -- '- env/*_macos*'
+        print -r -- '- env/*_linux*'
         ;;
       *)
         # Unknown OS: emit no rules → fall through to blanket sync.
@@ -639,22 +1016,13 @@ install_brew_apps() {
   for cask in "${CASKS[@]}"; do
     brew_cask_install_if_missing "$cask"
   done
-  log_info "running 'brew upgrade' (best-effort)"
-  if ! brew upgrade; then
-    log_warn "'brew upgrade' failed — continuing"
+  if (( UPGRADE_ALL )); then
+    log_info "running 'brew upgrade' (best-effort)"
+    if ! brew upgrade; then
+      log_warn "'brew upgrade' failed — continuing"
+    fi
   fi
   log_ok "brew apps phase complete"
-}
-
-configure_default_apps() {
-  duti -s org.libreoffice.script org.openxmlformats.wordprocessingml.document all
-  duti -s org.libreoffice.script com.microsoft.word.doc all
-  duti -s org.libreoffice.script org.oasis-open.opendocument.text all
-  duti -s org.libreoffice.script public.rtf all
-  duti -s org.libreoffice.script org.openxmlformats.spreadsheetml.sheet all
-  duti -s org.libreoffice.script com.microsoft.excel.xls all
-  duti -s org.libreoffice.script org.oasis-open.opendocument.spreadsheet all
-  duti -s org.libreoffice.script public.comma-separated-values-text all
 }
 
 ensure_gh_authenticated() {
@@ -684,60 +1052,244 @@ setup_dotfiles() {
     log_info "dotfiles directory already present at $DOTFILES_DIR"
   fi
 
-  _ensure_env_name
-
-  if [[ ! -f "$ENV_NAME_FILE" ]]; then
-    log_warn "$ENV_NAME_FILE not found — skipping env_name selection"
-    rsync_dotfiles_to_home
-    return 0
-  fi
-
-  # $ENV_NAME_FILE = $HOME/.env_name, seeded from $DOTFILES_SRC/.env_name.example
-  local -a choices
-  choices=("${(@f)$(read_env_name_choices "$ENV_NAME_FILE")}")
-  if (( ${#choices} == 0 )); then
-    log_warn "no candidate env names found in $ENV_NAME_FILE — skipping selection"
-  else
-    # Prepopulate the menu with the currently-selected env_name (line 1
-    # of the file) so the user can press Enter to keep their selection.
-    local current_env_name
-    current_env_name="$(head -n 1 "$ENV_NAME_FILE")"
-    current_env_name="${current_env_name## }"
-    current_env_name="${current_env_name%% }"
-    local -i default_idx=0
-    local -i ci
-    for (( ci = 1; ci <= ${#choices[@]}; ci++ )); do
-      if [[ "${choices[$ci]}" == "$current_env_name" ]]; then
-        default_idx=$ci
-        break
-      fi
-    done
-
-    local picked
-    picked="$(prompt_menu "Select env_name:" "$default_idx" "${choices[@]}")" || {
-      log_err "env_name selection aborted"
-      exit 1
-    }
-    # Per spec: replace line 1 with the chosen value; the rest of the
-    # file (including the original line-1 entry, which becomes a
-    # duplicate) is preserved byte-for-byte.
-    replace_first_line "$ENV_NAME_FILE" "$picked"
-    log_ok "set env_name to '$picked'"
+  if (( ! DRY_RUN )); then
+    _ensure_env_name || return 1
+    _choose_env_name || return 1
   fi
 
   rsync_dotfiles_to_home
 }
 
 # -----------------------------------------------------------------------------
+# # --- Verify & uninstall ---
+# -----------------------------------------------------------------------------
+verify_dotfiles() {
+  local -i failed=0
+  local f env_name filter output line
+  local -a env_files
+
+  for f in "$HOME/.zshenv" "$HOME/.zsh/.zshrc"; do
+    if [[ ! -f "$f" ]]; then
+      log_err "missing $f"
+      failed=1
+      continue
+    fi
+    if zsh -n "$f"; then
+      log_ok "syntax ok: $f"
+    else
+      log_err "syntax error: $f"
+      failed=1
+    fi
+  done
+
+  env_files=("$HOME"/.zsh/env/*(N.))
+  for f in "${env_files[@]}"; do
+    if zsh -n "$f"; then
+      log_ok "syntax ok: $f"
+    else
+      log_err "syntax error: $f"
+      failed=1
+    fi
+  done
+
+  env_name="$(read_active_env_name 2>/dev/null)"
+  if [[ -n "$env_name" ]] && (( ${PERSONAL_ENV_PROFILES[(Ie)$env_name]} )); then
+    if [[ -f "$HOME/.zsh/env/$env_name" ]]; then
+      log_ok "personal env profile present: $env_name"
+    else
+      log_err "missing personal env profile: $HOME/.zsh/env/$env_name"
+      failed=1
+    fi
+  fi
+
+  if [[ -f "$HOME/.zsh/plugins/antidote.zsh" ]]; then
+    log_ok "antidote present"
+  else
+    log_err "missing $HOME/.zsh/plugins/antidote.zsh"
+    failed=1
+  fi
+
+  # Run the idempotency pass before the smoke test: an interactive zsh can
+  # legitimately regenerate caches inside managed paths.
+  local os
+  os="$(detect_os)" || os="unknown"
+  filter="$(_build_env_filter "$os" "$env_name")" || return 1
+  if ! output="$(_itemized_dry_run "$filter" "$env_name" 2>/dev/null)"; then
+    rm -f "$filter"
+    log_err "idempotency dry pass failed"
+    return 1
+  fi
+  rm -f "$filter"
+  local -a lines=("${(@f)output}")
+  local -i drift=0
+  for line in "${lines[@]}"; do
+    [[ "$line" == '>f'* || "$line" == '*deleting'* ]] || continue
+    print -r -- "  $line"
+    drift=1
+  done
+  if (( drift )); then
+    log_err "idempotency check found pending changes"
+    failed=1
+  else
+    log_ok "idempotent: no pending changes"
+  fi
+
+  # Keep the smoke test from rewriting the installed static plugin file and
+  # global git config.
+  local smoke_cfg
+  smoke_cfg="$(mktemp)" || return 1
+  print -r -- "zstyle ':antidote:load:checkfile' disabled yes" > "$smoke_cfg"
+  if ANTIDOTE_CONFIG="$smoke_cfg" GIT_CONFIG_GLOBAL=/dev/null \
+    zsh -i -c 'exit 0' >/dev/null 2>&1 </dev/null; then
+    log_ok "interactive zsh smoke test passed"
+  else
+    log_err "interactive zsh smoke test failed"
+    failed=1
+  fi
+  rm -f "$smoke_cfg"
+
+  (( failed == 0 ))
+}
+
+uninstall_dotfiles() {
+  local -a archives=("$HOME"/.dotfiles.bak/dotfiles_*(N/))
+  if (( ${#archives} == 0 )); then
+    log_err "no backup found under $HOME/.dotfiles.bak"
+    return 1
+  fi
+  local archive="${archives[-1]}"
+  log_info "restoring managed paths from $archive"
+
+  local p src dst key
+  for p in "${MANAGED_PATHS[@]}"; do
+    src="$archive/$p"
+    [[ -e "$src" ]] || continue
+    dst="$HOME/$p"
+    if [[ -d "$src" ]]; then
+      if ! rsync -a "$src/" "$dst/"; then
+        log_err "restore failed for $p"
+        return 1
+      fi
+    else
+      if ! mkdir -p "${dst:h}"; then
+        log_err "failed to create ${dst:h}"
+        return 1
+      fi
+      if ! rsync -a "$src" "$dst"; then
+        log_err "restore failed for $p"
+        return 1
+      fi
+    fi
+  done
+
+  for key in "${(@k)PATH_MAP}"; do
+    dst="${PATH_MAP[$key]}"
+    src="$archive/$dst"
+    [[ -e "$src" ]] || continue
+    if ! mkdir -p "$HOME/${dst:h}"; then
+      log_err "failed to create $HOME/${dst:h}"
+      return 1
+    fi
+    if ! rsync -a "$src" "$HOME/$dst"; then
+      log_err "restore failed for $dst"
+      return 1
+    fi
+  done
+
+  log_ok "restored managed paths from $archive"
+  log_info "$ENV_NAME_FILE is preserved and cannot be restored"
+  return 0
+}
+
+# -----------------------------------------------------------------------------
+# # --- Phase state ---
+# -----------------------------------------------------------------------------
+_phase_done() {
+  local f="$HOME/.dotfiles.bak/.bootstrap-state"
+  [[ -f "$f" ]] && grep -qx "$1" "$f"
+}
+
+_mark_phase() {
+  local f="$HOME/.dotfiles.bak/.bootstrap-state"
+  mkdir -p "${f:h}" || return 1
+  print -r -- "$1" >> "$f" || return 1
+}
+
+run_phase() {
+  local name="$1"
+  if (( RESUME )) && [[ "$name" != verify ]] && _phase_done "$name"; then
+    log_info "resume: skipping completed phase '$name'"
+    return 0
+  fi
+
+  case "$name" in
+    brew)
+      if (( DRY_RUN )); then
+        log_info "dry-run: skipping brew phase"
+        return 0
+      fi
+      if (( ! APPS )) && [[ "$ONLY_PHASE" != brew ]]; then
+        log_info "apps not requested - skipping brew phase (use --apps)"
+        return 0
+      fi
+      bootstrap_xcode_clt || return 1
+      bootstrap_homebrew || return 1
+      ensure_git_and_gh || return 1
+      if (( APPS )); then
+        install_brew_apps || return 1
+      fi
+      ;;
+    dotfiles)
+      setup_dotfiles || return 1
+      ;;
+    verify)
+      if (( DRY_RUN )); then
+        log_info "dry-run: skipping verify phase"
+        return 0
+      fi
+      verify_dotfiles || return 1
+      ;;
+    *)
+      log_err "unknown phase '$name'"
+      return 1
+      ;;
+  esac
+
+  if (( ! DRY_RUN )); then
+    _mark_phase "$name" || return 1
+  fi
+  log_ok "phase complete: $name"
+  return 0
+}
+
+# -----------------------------------------------------------------------------
 # main
 # -----------------------------------------------------------------------------
 main() {
-  bootstrap_xcode_clt
-  bootstrap_homebrew
-  ensure_git_and_gh
-  install_brew_apps
-  configure_default_apps
-  setup_dotfiles
+  parse_args "$@"
+  if (( HELP )); then
+    usage
+    return 0
+  fi
+
+  preflight || exit $?
+
+  if (( UNINSTALL )); then
+    uninstall_dotfiles
+    exit $?
+  fi
+
+  local -a run
+  if [[ -n "$ONLY_PHASE" ]]; then
+    run=("$ONLY_PHASE")
+  else
+    run=("${PHASES[@]}")
+  fi
+
+  local phase
+  for phase in "${run[@]}"; do
+    run_phase "$phase" || exit 1
+  done
   log_ok "bootstrap complete"
 }
 
