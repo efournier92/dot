@@ -1,2 +1,47 @@
+# Minimal Starship prompt: info line on top, bare prompt char below.
+# Only what `format` references renders; modules that ship disabled
+# (status, git_metrics, sudo) need an explicit `disabled = false`.
+
+format = """
+$hostname$directory$fill$git_branch$git_status$git_metrics$git_state$ruby$nodejs$python$cmd_duration$sudo$jobs$status
+$character"""
+
+[fill]
+symbol = ' '
+
+[directory]
+truncation_length = 0
+truncate_to_repo = true
+
+[git_branch]
+format = '[$branch]($style) '
+
+[hostname]
+format = '[$ssh_symbol$hostname]($style) '
+
+[status]
+disabled = false
+
+[git_metrics]
+disabled = false
+added_style = 'bold green'
+deleted_style = 'bold red'
+
+[sudo]
+disabled = false
+symbol = '🧙'
+format = '[$symbol]($style) '
+
+[cmd_duration]
+min_time = 2000
+show_milliseconds = false
+format = '[$duration]($style) '
+
+[ruby]
+format = '[$symbol$version]($style) '
+
 [nodejs]
-#disabled = true
+format = '[$symbol$version]($style) '
+
+[python]
+format = '[$symbol$version]($style) '
