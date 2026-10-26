@@ -7,6 +7,5 @@ files/.zsh/.zcompdump
 files/.zsh/plugins.zsh
 files/.config/nvim/.git/
 
-history/*.zip
 /docs/critique/
 
