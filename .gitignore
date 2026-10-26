@@ -1,9 +1,12 @@
-files/.zsh/plugins/
+files/.env_name
 files/.zsh/.secrets
+files/.zsh/.secrets_*
 files/.zsh/.zcompcache
 files/.zsh/.zsh_sessions
 files/.zsh/.zcompdump
+files/.zsh/plugins.zsh
 files/.config/nvim/.git/
 
-history/2026-06-15.zip
+history/*.zip
+/docs/critique/
 
