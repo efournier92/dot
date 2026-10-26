@@ -72,7 +72,11 @@ autoload -Uz compinit && compinit -d "$ZSH_COMPDUMP"
 
 #### Load
 #
-eval "$(starship init zsh)"
+# Guarded: hosts without starship (fresh Linux boxes) fall back to the stock
+# prompt instead of erroring on every shell.
+if command -v starship >/dev/null 2>&1; then
+  eval "$(starship init zsh)"
+fi
 
 ### FZF Fuzzy Picker
 
