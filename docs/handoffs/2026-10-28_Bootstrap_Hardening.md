@@ -12,28 +12,26 @@ Done:
 - README installer section updated (brew requires --apps, env profile selection, .dotbak note).
 - Discovery entries D-20261028-07..11 appended.
 
-In progress:
+Applied 2026-10-28:
 
-- All hardening work is uncommitted.
-- The installer has NOT been applied to the real HOME; only dry runs and fake-HOME runs. Real `doctor` still reports drift until first real apply.
+- The hardening code and records are committed; only the 2026-10-28 apply-session edits to this handoff and `docs/discovery/DISCOVERY.md` remain uncommitted.
+- Real apply completed against the live HOME: 17 installed, 33 updated, 0 pruned, 128 unchanged; an immediate second apply reported 0 installed, 0 updated, 0 pruned, proving idempotency.
+- `doctor: clean (v2026-10-28.2)` on the live HOME. `~/.config/tmuxinator/.work/` now holds 6 projects; `TMUXINATOR_CONFIG=$HOME/.config/tmuxinator/.primary tmuxinator list` still shows `LM`.
+- The pre-rename work-profile directory was retired after inventory, diff against the repo successors, and an out-of-HOME tar backup. Removal was manual and approval-gated because the installer never tracked that path.
+- One stale June `.dotbak` that carried the retired name was copied to `/tmp/work-profile-legacy-20261028/` and then removed, so the live HOME carries zero matches.
 
 Repo state:
 
-- Repo: `/Users/e/mnt/bnk/cs/dot`, branch `main`, HEAD `8f7a2e2`.
-- Modified: `README.md`, `docs/discovery/DISCOVERY.md`, `files/.zsh/scripts/environment/bootstrap`.
-- Untracked: `docs/installer/`, `tests/`, `docs/handoffs/`.
+- Repo: `/Users/e/mnt/bnk/cs/dot`, branch `main`, HEAD `7c56714`.
+- Hardening code and tests landed in `2fd559e` (`README.md`, `docs/installer/`, `files/.zsh/scripts/environment/bootstrap`, `tests/run.sh`); records landed in `7c56714` (`docs/discovery/`, this handoff).
+- Uncommitted after the 2026-10-28 apply session: `docs/discovery/DISCOVERY.md` (adds D-20261028-12) and this handoff.
 - Ignored review artifacts: `docs/critique/*` (force-add the ledger only if it must be committed).
 
 ## Next Actions
 
-1. Ship the hardening diff (`ship-changes`); the redteam gate and the overwrite-policy decision are settled.
-2. Real-machine dry run, inspect the plan:
-   `zsh files/.zsh/scripts/environment/bootstrap --only dotfiles --dry-run`
-3. Real apply, then verify:
-   - `zsh files/.zsh/scripts/environment/bootstrap --only dotfiles --apply --yes`
-   - `doctor` must print `doctor: clean (v2026-10-28.2)`.
-   - `TMUXINATOR_CONFIG=$HOME/.config/tmuxinator/.primary tmuxinator list` must still show `LM`.
-4. Decide whether to retire the stale live `.work_savvy` directory (repo ships `.work`).
+1. Ship the hardening diff (`ship-changes`); the redteam gate and the overwrite-policy decision are settled. Still open.
+2. Real-machine dry run and real apply: done 2026-10-28 (see Applied above).
+3. Work-profile retirement: done 2026-10-28. Left untouched as a separate future decision: `.primary/` and the 7 root-level yml files under `~/.config/tmuxinator/`.
 
 ## Verify Commands
 
@@ -61,7 +59,8 @@ Expected: apply exits 0 (178 installed), doctor prints `doctor: clean (v2026-10-
 
 - Accepted residuals, owner-ratified: same-user state forgery with matching hash (C-01), unpinned brew installer behind --apps (C-12), same-user TOCTOU (C-11), PATH-spoofed id (C-21), repo-path metacharacters in launcher (C-22).
 - Plugin scripts referenced by skills are missing from the install (`check_critique.py`, `check_discovery.py`, `lint-markdown.py`); ledger and discovery were validated manually. System-level fix pending.
-- `.dotbak` files are unmanaged side-cars; they are never pruned and accumulate one per managed path max.
+- `.dotbak` files are unmanaged side-cars; they are never pruned and accumulate one per managed path max. 17 remained in the live HOME on 2026-10-28; the one stale June copy carrying the retired name was stashed and removed, the rest were left alone.
+- Live `agile_ticket_create` requires `TICKET_URL_BASE`, which is defined nowhere in `~/.zsh`, `~/.zshenv`, or the repo; the script aborts with `set TICKET_URL_BASE` when invoked. Not fixed, needs a separate decision.
 - Known cosmetic: bootstrap lacks a trailing newline at EOF.
 
 ## Discovery Links
@@ -73,3 +72,4 @@ Expected: apply exits 0 (178 installed), doctor prints `doctor: clean (v2026-10-
 - `D-20261028-09`: env fail-closed decision.
 - `D-20261028-10`: state-trust hardening decision.
 - `D-20261028-11`: redteam convergence outcome.
+- `D-20261028-12`: work-profile retirement decision.

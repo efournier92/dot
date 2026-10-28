@@ -5,6 +5,7 @@ Scope tokens: zsh/bootstrap, zsh/prompt
 
 ## Entries
 
+- D-20261028-12 | 2026-10-28 | [decision] | zsh/bootstrap | Pre-rename work-profile dir retired for repo `.work`; manual backup-gated removal, installer never tracked it | `bash tests/run.sh` -> PASS 18/18
 - D-20261028-11 | 2026-10-28 | [outcome] | zsh/bootstrap | Install-flow redteam converged: 30 findings, 25 fixed, 5 rejected (1 owner-ratified); suite grew 6 to 18 cases | `bash tests/run.sh` -> PASS 18/18
 - D-20261028-10 | 2026-10-28 | [decision] | zsh/bootstrap | Same-user state forgery stays accepted residual risk; hardened with chmod 700 state dir plus wrong-hash prune regression test | `files/.zsh/scripts/environment/bootstrap:318`
 - D-20261028-09 | 2026-10-28 | [decision] | zsh/bootstrap | Env fails closed: comment-only or unknown profile aborts rc=2 with valid names; absent ~/.env_name falls back to repo default | `files/.zsh/scripts/environment/bootstrap:106-146`
