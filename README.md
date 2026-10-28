@@ -13,31 +13,41 @@ This repo tracks the dotfiles and configuration I use across machines. The [`fil
 
 ## Installer
 
-The installer lives at [`files/.zsh/scripts/environment/bootstrap`](./files/.zsh/scripts/environment/bootstrap). It mirrors only the paths listed in its managed manifest, backs up replaced files, and verifies the result. It never writes unrelated files in your home directory.
+The installer lives at [`files/.zsh/scripts/environment/bootstrap`](./files/.zsh/scripts/environment/bootstrap). It installs only the exact files named in [`docs/installer/manifest`](./docs/installer/manifest) and records each installed path and hash in `${XDG_STATE_HOME:-$HOME/.local/state}/dot/installed.manifest`. It never mirrors a directory, never uses `--delete`, and never writes `$HOME` or an ancestor as an rsync destination.
+
+The deployed entrypoint is a generated launcher at `~/.zsh/scripts/environment/bootstrap` that `exec`s the repo script, so the code that runs cannot drift from the checkout.
 
 ### Usage
 
+Dry-run is the default. Nothing is written without `--apply`.
+
 ```sh
-./files/.zsh/scripts/environment/bootstrap --help
+./files/.zsh/scripts/environment/bootstrap --dry-run
+./files/.zsh/scripts/environment/bootstrap --apply --yes
+./files/.zsh/scripts/environment/bootstrap doctor
 ```
 
 | Flag | Behavior |
 | --- | --- |
-| `--dry-run` | Show pending changes and write nothing. |
+| `--dry-run` | Show pending changes and write nothing (default). |
+| `--apply` | Write changes. Requires `--yes` off a TTY. |
 | `--yes` | Skip confirmation prompts for non-interactive runs. |
 | `--apps` | Install the configured Homebrew formulae and casks. |
 | `--upgrade-all` | Run `brew upgrade` during the apps phase. |
-| `--env-name NAME` | Select the zsh environment profile without the menu. |
+| `--env-name NAME` | Select the zsh environment profile without a menu. |
 | `--repo PATH` | Use `PATH` as the dotfiles repo root. |
-| `--only PHASE` | Run only `brew`, `dotfiles`, or `verify`. |
-| `--resume` | Skip phases already recorded as complete. |
-| `--uninstall` | Restore managed paths from the newest backup. |
+| `--only PHASE` | Run only `brew`, `dotfiles`, or `verify`. `brew` does nothing unless `--apps` is also passed. |
+| `doctor` | Report entrypoint and manifest drift without writing. |
 
-### Recovery
+### State And Pruning
 
-Every run archives replaced files under `~/.dotfiles.bak/dotfiles_<timestamp>/`, and `~/.dotfiles.bak/latest` contains the newest archive path. `--uninstall` restores the managed paths and the mapped `~/.config/git/config` from that archive without deleting anything else. `~/.env_name` is machine-local, is preserved across runs, and cannot be restored from a backup.
+The state manifest is the only prune authority. A file is removed only when it is in the previous manifest, absent from the new manifest, and its current hash matches the recorded hash. A user-edited file is kept and dropped from state. Paths outside the previous manifest are never removed.
 
-Phase progress is stored in `~/.dotfiles.bak/.bootstrap-state`. If a run stops partway, re-run with `--resume` to skip the phases that already completed; `verify` always runs again. Use `--dry-run` first when you want to inspect the pending changes before writing.
+An update to an existing managed file first copies the current version to `<path>.dotbak` (one rolling copy, the latest prior version); installs and unchanged applies create no backup.
+
+### Env Profile Selection
+
+The env profile is the first non-comment, non-empty line of `~/.env_name`. If `~/.env_name` is absent, the installer falls back to the repo default at `files/.env_name` (fresh-machine bootstrap); the fallback value is validated the same way. Selection fails closed with exit code 2 when `~/.env_name` exists but yields no value (comment-only or empty), or when a resolved or `--env-name`-passed profile is not a basename of `files/.zsh/env/*` (excluding `common` and `common_<os>`) or one of the personal profiles.
 
 ## Contribute
 

@@ -1,0 +1,19 @@
+# Personal overlay entries; applied only for PERSONAL_ENV_PROFILES.
+personal/.zsh/env/primary_common -> .zsh/env/primary_common
+personal/.zsh/env/primary_macos -> .zsh/env/primary_macos
+personal/.zsh/scripts/download/torr -> .zsh/scripts/download/torr
+personal/.zsh/scripts/filesystem/confirm_rm_lt -> .zsh/scripts/filesystem/confirm_rm_lt
+personal/.zsh/scripts/phone/adb_helpers -> .zsh/scripts/phone/adb_helpers
+personal/.zsh/scripts/phone/photos_phone_copy -> .zsh/scripts/phone/photos_phone_copy
+personal/.zsh/scripts/rc/rc_bank_process -> .zsh/scripts/rc/rc_bank_process
+personal/.zsh/scripts/rc/rc_mkdir -> .zsh/scripts/rc/rc_mkdir
+personal/.zsh/scripts/rc/rc_mount -> .zsh/scripts/rc/rc_mount
+personal/.zsh/scripts/rc/rc_pending_process -> .zsh/scripts/rc/rc_pending_process
+personal/.zsh/scripts/rc/rc_phone_pull -> .zsh/scripts/rc/rc_phone_pull
+personal/.zsh/scripts/rc/rc_process -> .zsh/scripts/rc/rc_process
+personal/.zsh/scripts/rc/rc_record -> .zsh/scripts/rc/rc_record
+personal/.zsh/scripts/rc/rc_remote_audio_recieve -> .zsh/scripts/rc/rc_remote_audio_recieve
+personal/.zsh/scripts/rc/rc_remote_audio_send -> .zsh/scripts/rc/rc_remote_audio_send
+personal/.zsh/scripts/rc/rc_remote_clean -> .zsh/scripts/rc/rc_remote_clean
+personal/.zsh/scripts/rc/rc_remote_download -> .zsh/scripts/rc/rc_remote_download
+personal/.zsh/scripts/rc/rc_remote_process -> .zsh/scripts/rc/rc_remote_process

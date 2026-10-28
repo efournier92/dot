@@ -1,0 +1,4 @@
+#!/usr/bin/env zsh
+# Generated launcher; points at the dotfiles repo checkout.
+DOTFILES_DIR="${DOTFILES_DIR:-@@DOTFILES_DIR@@}"
+exec "$DOTFILES_DIR/files/.zsh/scripts/environment/bootstrap" --repo "$DOTFILES_DIR" "$@"
