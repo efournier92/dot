@@ -1,10 +1,11 @@
 # Discovery
 
 One line per finding, decision, assumption, trap, question, or outcome. Newest first. Evidence required.
-Scope tokens: tmux/agents, zsh/bootstrap, zsh/prompt
+Scope tokens: tmux/agents, zsh/bootstrap, zsh/prompt, macos/apps
 
 ## Entries
 
+- D-20261112-13 | 2026-11-12 | [decision] | macos/apps | Raycast joins CASKS; its `.rayconfig` export is a dated restore artifact in `history/`, live settings self-sync | `files/.zsh/scripts/environment/bootstrap:17`
 - D-20261112-12 | 2026-11-12 | [outcome] | tmux/agents | Redteam converged: 24 findings, 12 fixed, 12 rejected with evidence, suite 18 to 21 cases | `bash tests/run.sh` -> PASS 21/21
 - D-20261112-01 | 2026-11-12 | [decision] | tmux/agents | Herdr parity via pure TPM stack: hiroppy sidebar with alt+backslash focus cycling and Ctrl+Alt toggle-all, resurrect plus continuum, timvw resume, pinned by tag or SHA | `files/.tmux.conf:287`
 - D-20261112-04 | 2026-11-12 | [decision] | tmux/agents | Sidebar is opt-in: @sidebar_auto_create off means no automatic panes, and the plugin's default prefix e and E are unbound after load | `files/.tmux.conf:264`
