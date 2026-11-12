@@ -1,0 +1,116 @@
+#!/bin/bash
+
+#----------------
+# Name          : tmux_agent_setup
+# Description   : Fetches TPM, the pinned tmux plugins, and the agent sidebar binary.
+# Author        : E Fournier
+# Dependencies  : git, curl, tmux
+# Example Usage : ./tmux_agent_setup
+#----------------
+
+set -euo pipefail
+
+PLUGIN_ROOT="$HOME/.tmux/plugins"
+SIDEBAR_VERSION="v0.13.0"
+SIDEBAR_BIN="$PLUGIN_ROOT/tmux-agent-sidebar/bin/tmux-agent-sidebar"
+BRIDGE="$PLUGIN_ROOT/tmux-agent-sidebar/.opencode/plugins/tmux-agent-sidebar.js"
+
+warn() {
+  echo "WARNING: $*" >&2
+}
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+ensure_repo() {
+  local name="$1" url="$2" ref="${3:-}" dir="$PLUGIN_ROOT/$1"
+  if [[ ! -d "$dir/.git" ]]; then
+    if [[ -e "$dir" ]]; then
+      warn "replacing non-git dir: $dir"
+      rm -rf "$dir"
+    fi
+    mkdir -p "$PLUGIN_ROOT"
+    git clone --quiet "$url" "$dir" || fail "clone failed: $name"
+  fi
+  if [[ -n "$ref" ]]; then
+    git -C "$dir" fetch --quiet --tags origin || warn "fetch failed: $name"
+    local want have
+    want=$(git -C "$dir" rev-parse --verify --quiet "$ref^{commit}" || true)
+    have=$(git -C "$dir" rev-parse --verify --quiet HEAD || true)
+    if [[ -z "$want" ]]; then
+      fail "unknown ref: $name@$ref"
+    elif [[ "$want" != "$have" ]]; then
+      git -C "$dir" checkout --quiet "$ref" || fail "checkout failed: $name@$ref"
+    fi
+  fi
+  echo "present $name"
+}
+
+ensure_sidebar_binary() {
+  local marker="${SIDEBAR_BIN%/*}/.version"
+  if [[ -x "$SIDEBAR_BIN" ]] && [[ "$(cat "$marker" 2>/dev/null)" == "$SIDEBAR_VERSION" ]]; then
+    echo "present tmux-agent-sidebar binary"
+    return
+  fi
+  local os arch
+  case "$(uname -s)" in
+    Darwin) os=darwin ;;
+    Linux) os=linux ;;
+    *) warn "unknown OS $(uname -s), download the sidebar binary manually into $SIDEBAR_BIN"; return ;;
+  esac
+  case "$(uname -m)" in
+    arm64|aarch64) arch=aarch64 ;;
+    x86_64) arch=x86_64 ;;
+    *) warn "unknown arch $(uname -m), download the sidebar binary manually into $SIDEBAR_BIN"; return ;;
+  esac
+  mkdir -p "${SIDEBAR_BIN%/*}"
+  curl -fL "https://github.com/hiroppy/tmux-agent-sidebar/releases/download/$SIDEBAR_VERSION/tmux-agent-sidebar-$os-$arch" \
+    -o "$SIDEBAR_BIN" || fail "sidebar binary download failed: $os-$arch"
+  chmod +x "$SIDEBAR_BIN"
+  printf '%s\n' "$SIDEBAR_VERSION" > "$marker"
+  echo "installed tmux-agent-sidebar binary ($os-$arch)"
+}
+
+link_opencode_bridge() {
+  mkdir -p "$HOME/.config/opencode/plugins"
+  ln -sfn "$BRIDGE" "$HOME/.config/opencode/plugins/tmux-agent-sidebar.js"
+  echo "linked OpenCode bridge"
+}
+
+register_claude_plugin() {
+  command -v claude >/dev/null 2>&1 || return 0
+  local out
+  if ! out=$(claude plugin marketplace add "$PLUGIN_ROOT/tmux-agent-sidebar" 2>&1); then
+    warn "claude marketplace add skipped: $out"
+  fi
+  if ! out=$(claude plugin install tmux-agent-sidebar@hiroppy 2>&1); then
+    case "$out" in
+      *already*|*installed*) : ;;
+      *) warn "claude plugin install skipped: $out" ;;
+    esac
+  fi
+}
+
+main() {
+  command -v git >/dev/null 2>&1 || fail "missing dependency: git"
+  command -v curl >/dev/null 2>&1 || fail "missing dependency: curl"
+  ensure_repo tpm https://github.com/tmux-plugins/tpm
+  ensure_repo tmux-resurrect https://github.com/tmux-plugins/tmux-resurrect v4.0.0
+  ensure_repo tmux-continuum https://github.com/tmux-plugins/tmux-continuum v3.1.0
+  ensure_repo tmux-agent-sidebar https://github.com/hiroppy/tmux-agent-sidebar "$SIDEBAR_VERSION"
+  ensure_repo tmux-assistant-resurrect https://github.com/timvw/tmux-assistant-resurrect 1c3309981370fefe77fb3a0708bb2c7f140cd7bf
+  ensure_sidebar_binary
+  link_opencode_bridge
+  register_claude_plugin
+
+  echo
+  echo "Reload tmux config: tmux source-file ~/.tmux.conf"
+  echo "Toggle sidebar: M-\\ (focus), C-M-\\ (show/hide in all windows)"
+  echo "Restart any running agent so the OpenCode bridge loads."
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

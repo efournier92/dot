@@ -1,0 +1,19 @@
+#!/bin/bash
+
+#----------------
+# Name          : tmux_sidebar_unfocus
+# Description   : Moves focus off the agent sidebar when a window or session is entered.
+# Author        : E Fournier
+# Dependencies  : tmux
+# Example Usage : run-shell -b "$HOME/.zsh/scripts/environment/tmux_sidebar_unfocus"
+#----------------
+
+set -u
+
+[ "$(tmux display-message -p '#{@pane_role}' 2>/dev/null)" = sidebar ] || exit 0
+
+window=$(tmux display-message -p '#{window_id}' 2>/dev/null) || exit 0
+[ -n "$window" ] || exit 0
+
+pane=$(tmux list-panes -t "$window" -F '#{pane_id} #{@pane_role}' | awk '$2 != "sidebar" {print $1; exit}')
+[ -n "$pane" ] && exec tmux select-pane -t "$pane"

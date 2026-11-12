@@ -39,6 +39,8 @@ Dry-run is the default. Nothing is written without `--apply`.
 | `--only PHASE` | Run only `brew`, `dotfiles`, or `verify`. `brew` does nothing unless `--apps` is also passed. |
 | `doctor` | Report entrypoint and manifest drift without writing. |
 
+Run `tmux_agent_setup` once per machine after the dotfiles install. It fetches TPM, the pinned tmux plugins, and the agent sidebar binary.
+
 ### State And Pruning
 
 The state manifest is the only prune authority. A file is removed only when it is in the previous manifest, absent from the new manifest, and its current hash matches the recorded hash. A user-edited file is kept and dropped from state. Paths outside the previous manifest are never removed.
