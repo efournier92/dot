@@ -14,7 +14,7 @@ typeset -a FORMULAS=(
   asdf eza fzf fzf-tab gh git-delta sesh lazygit lazysql neovim
   ripgrep starship tmuxinator unison zoxide
 )
-typeset -a CASKS=( font-jetbrains-mono-nerd-font ghostty macvim )
+typeset -a CASKS=( font-jetbrains-mono-nerd-font ghostty macvim raycast )
 DOTFILES_DIR="${DOTFILES_DIR:-${0:A:h:h:h:h:h}}"
 _set_paths() {
   DOTFILES_SRC="$DOTFILES_DIR/files"
