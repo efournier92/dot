@@ -142,6 +142,8 @@
 .zsh/scripts/environment/system_update
 .zsh/scripts/environment/system_update_linux
 .zsh/scripts/environment/system_update_macos
+.zsh/scripts/environment/tmux_agent_setup
+.zsh/scripts/environment/tmux_sidebar_unfocus
 .zsh/scripts/environment/update_claude_code
 .zsh/scripts/environment/watch_for_change
 .zsh/scripts/filesystem/copy_with_progress

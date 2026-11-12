@@ -700,7 +700,7 @@ test_real_repo() {
     fail "real-repo install exited $RC: $ERR"
     return 1
   fi
-  if ! combined_output | grep -Eq '178 installed'; then
+  if ! combined_output | grep -Eq '180 installed'; then
     fail "real-repo install count wrong: $(combined_output | grep 'installed' | tr '\n' ' ')"
     return 1
   fi
@@ -893,6 +893,66 @@ run_test() {
   fi
 }
 
+test_new_scripts_syntax() {
+  local rel
+  for rel in \
+    files/.zsh/scripts/environment/tmux_agent_setup \
+    files/.zsh/scripts/environment/tmux_sidebar_unfocus; do
+    [ -f "$REPO_ROOT/$rel" ] || { fail "missing script: $rel"; return 1; }
+    bash -n "$REPO_ROOT/$rel" || { fail "syntax error: $rel"; return 1; }
+    [ -x "$REPO_ROOT/$rel" ] || { fail "not executable: $rel"; return 1; }
+  done
+  return 0
+}
+
+test_ensure_repo_converges() {
+  local src="$CASE_ROOT/pin-src"
+  mkdir -p "$src"
+  git -C "$src" init --quiet || { fail "git init"; return 1; }
+  git -C "$src" config user.email t@t
+  git -C "$src" config user.name t
+  printf 'one\n' > "$src/f"
+  git -C "$src" add f
+  git -C "$src" commit -qm one
+  git -C "$src" tag v1
+  printf 'two\n' > "$src/f"
+  git -C "$src" add f
+  git -C "$src" commit -qm two
+  git -C "$src" tag v2
+  (
+    source "$REPO_ROOT/files/.zsh/scripts/environment/tmux_agent_setup"
+    PLUGIN_ROOT="$CASE_ROOT/plugins"
+    export PLUGIN_ROOT
+    mkdir -p "$PLUGIN_ROOT/demo"
+    ensure_repo demo "$src" v1 >/dev/null
+    [ "$(git -C "$PLUGIN_ROOT/demo" describe --tags --exact-match)" = v1 ]
+    ensure_repo demo "$src" v2 >/dev/null
+    [ "$(git -C "$PLUGIN_ROOT/demo" describe --tags --exact-match)" = v2 ]
+    ensure_repo demo "$src" v2 >/dev/null
+    [ "$(git -C "$PLUGIN_ROOT/demo" describe --tags --exact-match)" = v2 ]
+  ) || { fail "ensure_repo did not converge or repair"; return 1; }
+  return 0
+}
+
+test_tmux_config_parses() {
+  command -v tmux >/dev/null 2>&1 || { printf '  skip: tmux not installed\n'; return 0; }
+  local sock="dot-test-$$-$RANDOM" home="$CASE_ROOT/home-tmux" keys
+  mkdir -p "$home"
+  if ! HOME="$home" tmux -L "$sock" -f "$REPO_ROOT/files/.tmux.conf" new-session -d -s t 2>"$CASE_ROOT/tmux.err"; then
+    fail "tmux config failed to parse: $(cat "$CASE_ROOT/tmux.err")"
+    HOME="$home" tmux -L "$sock" kill-server 2>/dev/null
+    return 1
+  fi
+  keys=$(HOME="$home" tmux -L "$sock" list-keys -T root 2>/dev/null)
+  local hooks
+  hooks=$(HOME="$home" tmux -L "$sock" show-hooks -g 2>/dev/null)
+  HOME="$home" tmux -L "$sock" kill-server 2>/dev/null
+  [ "$(printf '%s\n' "$hooks" | grep -c tmux_sidebar_unfocus)" -eq 3 ] || { fail "missing unfocus hooks"; return 1; }
+  printf '%s\n' "$keys" | grep -q 'select-pane -l' || { fail "missing M-\\ focus binding"; return 1; }
+  printf '%s\n' "$keys" | grep -q 'toggle-all' || { fail "missing C-M-\\ toggle-all binding"; return 1; }
+  return 0
+}
+
 run_test test_sentinel_survival
 run_test test_dry_run_writes_nothing
 run_test test_idempotency
@@ -911,6 +971,9 @@ run_test test_mount_parsing
 run_test test_update_backup
 run_test test_env_fail_closed
 run_test test_state_trust
+run_test test_new_scripts_syntax
+run_test test_ensure_repo_converges
+run_test test_tmux_config_parses
 
 if [ "$failures" -ne 0 ]; then
   printf 'RESULT: FAIL (%d/%d passed)\n' "$((total - failures))" "$total"
