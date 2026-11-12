@@ -20,7 +20,18 @@ format = '[$branch]($style) '
 format = '[$ssh_symbol$hostname]($style) '
 
 [status]
+# Small dim marker; suppress Ctrl-C / kill / term and show a number only for
+# codes that have no stock meaning.
 disabled = false
+symbol = '✗'
+style = 'red'
+format = '[$symbol$maybe_int]($style)'
+recognize_signal_code = true
+map_symbol = true
+sigint_symbol = ''
+signal_symbol = ''
+not_executable_symbol = '✗'
+not_found_symbol = '✗'
 
 [git_metrics]
 disabled = false
@@ -29,13 +40,15 @@ deleted_style = 'bold red'
 
 [sudo]
 disabled = false
-symbol = '🧙'
+symbol = 'ROOT'
+style = 'bold yellow'
 format = '[$symbol]($style) '
 
 [cmd_duration]
 min_time = 2000
 show_milliseconds = false
 format = '[$duration]($style) '
+style = 'dimmed'
 
 [ruby]
 format = '[$symbol$version]($style) '
