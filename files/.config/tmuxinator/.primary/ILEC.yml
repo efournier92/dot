@@ -2,14 +2,15 @@
 
 name: ILEC
 root: <%= root_dir %>/lecoursville
+startup_window: Llm
 
 windows:
   - Serve:
       panes:
         - npm start
-  - Llm:
-      panes:
-        - opencode
   - Ide:
       panes:
         - nvim .
+  - Llm:
+      panes:
+        - opencode
