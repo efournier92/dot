@@ -1,0 +1,83 @@
+# Critique Ledger: Install Archive And Env-Scope Hardening
+
+- Goal: make the dotfiles installer lossless (archive prune and overwrite to ~/.dotfiles_archive/<date>) and env+OS-scoped, keeping the process minimal and fail-closed
+- Started: 2026-11-12
+- Branch: main
+- Lens set: correctness, data-integrity, security, testing
+
+## Findings
+
+- C-20261112-01 | 2026-11-12 | correctness | high | high | addressed | Archive target not unique: a second update of one file, or prune-reinstall-prune, mv-overwrites the earlier archived copy, destroying it against the nothing-lost rule | files/.zsh/scripts/environment/bootstrap:270
+  - rebuttal | addressed | `zsh /tmp/probe.zsh`, bootstrap:270 | append .$N on an existing archive path; second touch keeps both
+- C-20261112-02 | 2026-11-12 | correctness | high | high | addressed | Reusing _env_ok for .zsh/scripts/* is inert: its first line returns 0 for any path outside .zsh/env/, so every script still installs everywhere | files/.zsh/scripts/environment/bootstrap:181
+  - rebuttal | addressed | `zsh /tmp/probe.zsh` P1 rc=0 | new _script_ok handles scripts; _env_ok left for env only
+- C-20261112-03 | 2026-11-12 | correctness | high | high | addressed | If the prefix gate is widened, f==$ENV_NAME still cannot match: f is a script basename and ENV_NAME a profile, so all tagged scripts get filtered out and pruned | files/.zsh/scripts/environment/bootstrap:188
+  - rebuttal | addressed | `zsh /tmp/probe.zsh` P1c rc=1 | _script_ok matches token==OS only, never a profile name
+- C-20261112-04 | 2026-11-12 | correctness | high | medium | addressed | _assert_dest cannot cover the archive: rel empty allows only STATE_DIR, rel set requires dest==$HOME/rel plus manifest membership, archive path matches neither | files/.zsh/scripts/environment/bootstrap:159
+  - rebuttal | addressed | `zsh /tmp/probe.zsh` P2 rc=1 | new _assert_archive; probing proved the existing guard rejects archive paths
+- C-20261112-05 | 2026-11-12 | correctness | medium | high | addressed | Pre-write validation omits the archive root: an unwritable or file-valued ~/.dotfiles_archive aborts mid-loop after earlier updates, so dry-run predicts success | files/.zsh/scripts/environment/bootstrap:240
+  - rebuttal | addressed | bootstrap:240 | pre-validate ARCHIVE_ROOT writable and not-a-file before any write
+- C-20261112-06 | 2026-11-12 | correctness | medium | high | addressed | Moving the live file before rsync leaves the managed path absent if rsync fails while state records the old hash, unlike the in-place cp it replaces | files/.zsh/scripts/environment/bootstrap:270
+  - rebuttal | addressed | bootstrap:277 | rsync to $abs.tmp then mv on success; live file untouched on failure
+- C-20261112-07 | 2026-11-12 | correctness | medium | high | addressed | No script filename encodes an env profile (0 of 63), only 18 OS suffixes exist, so the filter is OS-only and env-scoped scripts live only in personal.manifest at filter_env=0 | docs/installer/manifest:116
+  - rebuttal | addressed | docs/installer/manifest:116 | design documented as OS-only script filter; env via env file plus personal overlay
+- C-20261112-08 | 2026-11-12 | correctness | medium | high | addressed | Matching three substrings leaves 45 untagged scripts including Linux-only sound/* installing everywhere, zero carry _wsl, and unknown suffixes fail open | files/.zsh/scripts/environment/bootstrap:184
+  - rebuttal | addressed | owner walkthrough 2026-11-12 | owner ruled: OS-scope via manifest annotation, Linux-only untagged scripts tagged, no renames
+  - rebuttal | escalated | files/.zsh/scripts/sound | which untagged Linux-only scripts to rename or tag is an owner policy call
+- C-20261112-09 | 2026-11-12 | data-integrity | high | high | addressed | Same-day archive path is deterministic: a second touch of one rel overwrites the earlier archived version, and case-variant rels collide on case-insensitive APFS | files/.zsh/scripts/environment/bootstrap:269
+  - rebuttal | addressed | bootstrap:269 | dated dir plus unique .$N suffix; case variants stay distinct keys
+- C-20261112-10 | 2026-11-12 | data-integrity | high | high | addressed | Prune still runs unconditional rm -f on the matched file; if the archive move is skipped, unchecked, or ordered after unlink, the last copy is lost, no ordering rule stated | files/.zsh/scripts/environment/bootstrap:303
+  - rebuttal | addressed | bootstrap:303 | archive-move first, abort before any rm or state write
+- C-20261112-11 | 2026-11-12 | data-integrity | high | medium | addressed | mkdir/mv failure has no fail-closed rule; a failed move followed by overwrite or rm destroys the prior file, and cross-FS mv is non-atomic copy plus unlink that can truncate | files/.zsh/scripts/environment/bootstrap:267
+  - rebuttal | addressed | `zsh /tmp/probe.zsh` P5 | archive is same FS as targets so mv is atomic; overwrite uses cp plus tmp plus mv
+- C-20261112-12 | 2026-11-12 | data-integrity | medium | high | addressed | Archive paths cannot pass _assert_dest, so the mv is unguarded and a symlinked or mounted .dotfiles_archive redirects moves past FORBIDDEN and MOUNTS | files/.zsh/scripts/environment/bootstrap:159
+  - rebuttal | addressed | `zsh /tmp/probe.zsh` P2 | _assert_archive covers archive root, date dir, and final path
+- C-20261112-13 | 2026-11-12 | data-integrity | medium | medium | addressed | The pre-loop -d refusal is the only guard stopping a proposed mv from relocating a whole directory tree at a managed dest into the archive; dropping it reopens bulk-move | files/.zsh/scripts/environment/bootstrap:248
+  - rebuttal | addressed | bootstrap:248 | keep the dest-is-directory refusal; un-ship must not remove it
+- C-20261112-14 | 2026-11-12 | data-integrity | medium | high | addressed | Removing .dotbak leaves README:48 and DISCOVERY:24 promising it and test_update_backup asserting it, so the suite goes red and no test asserts archive bytes | tests/run.sh:801
+  - rebuttal | addressed | README.md:48 | docs and tests updated to archive behavior in implementation
+- C-20261112-15 | 2026-11-12 | data-integrity | low | high | addressed | Case-alias prune skip retires the state entry without archiving; on case-sensitive Linux the distinct old-case file is orphaned and can never be archived | files/.zsh/scripts/environment/bootstrap:294
+  - rebuttal | addressed | bootstrap:294 | archive the stale alias copy before dropping its state key
+- C-20261112-16 | 2026-11-12 | data-integrity | low | medium | addressed | Archive via cp dereferences a symlink dest; a copy without -p rewrites 0600 to 0644 in a default 0755 archive dir, and cross-FS copies may lose ACLs and xattrs | files/.zsh/scripts/environment/bootstrap:270
+  - rebuttal | addressed | bootstrap:270 | cp -pP preserves link and perms; archive dirs are 700
+- C-20261112-17 | 2026-11-12 | security | medium | high | addressed | Archive writes have no destination guard: a symlink or mount at ~/.dotfiles_archive or its date dir redirects mkdir and mv into $HOME/mnt or Library | files/.zsh/scripts/environment/bootstrap:155
+  - rebuttal | addressed | `zsh /tmp/probe.zsh` P2 | _assert_archive refuses symlink or mount at archive root
+- C-20261112-18 | 2026-11-12 | security | medium | high | addressed | Filtered entries drop with a silent continue; reused _env_ok drops every OS-tagged script on its own OS and doctor still reports clean | files/.zsh/scripts/environment/bootstrap:199
+  - rebuttal | addressed | bootstrap:199 | log a skip line per filtered entry instead of silent continue
+- C-20261112-19 | 2026-11-12 | security | medium | high | addressed | Archive root absent from FORBIDDEN though $HOME/.dotfiles.bak is listed, so a manifest dest under .dotfiles_archive is accepted and can overwrite or prune the archive | files/.zsh/scripts/environment/bootstrap:145
+  - rebuttal | addressed | bootstrap:145 | add $HOME/.dotfiles_archive to FORBIDDEN; probe shows it absent today
+- C-20261112-20 | 2026-11-12 | security | low | medium | addressed | Archived copies of user-edited env files (possible pasted tokens) are retained unbounded in a predictable umask tree while STATE_DIR gets chmod 700 | files/.zsh/scripts/environment/bootstrap:317
+  - rebuttal | addressed | bootstrap:317 | archive tree is 700; unbounded retention is the stated no-loss intent
+- C-20261112-21 | 2026-11-12 | security | low | high | addressed | personal.manifest loads at filter_env=0, so the new script filter never applies to its 19 entries and OS-specific personal scripts install under both profiles | files/.zsh/scripts/environment/bootstrap:224
+  - rebuttal | addressed | bootstrap:224 | apply the same OS filter to personal entries
+- C-20261112-22 | 2026-11-12 | testing | high | high | addressed | test_prune_safety asserts only that the pruned file is gone, so rm and move-to-archive both pass; nothing covers archive path, old bytes, date, or a third apply | tests/run.sh:273
+  - rebuttal | addressed | tests/run.sh:273 | add archive path, old-byte, date, and idempotent assertions
+- C-20261112-23 | 2026-11-12 | testing | high | high | addressed | test_update_backup exercises one update and asserts .dotbak; a second same-day edit that overwrites the single archive path silently loses the first version, untested | tests/run.sh:793
+  - rebuttal | addressed | tests/run.sh:793 | same-day two-touch test proving both archived versions survive
+- C-20261112-24 | 2026-11-12 | testing | high | high | addressed | No fixture manifest installs a .zsh/scripts entry, so the new filter is covered only by the real-repo count grep and count-neutral swaps pass | tests/run.sh:703
+  - rebuttal | addressed | tests/run.sh:703 | fixture manifest with script entries plus expected present/absent set
+- C-20261112-25 | 2026-11-12 | testing | medium | high | addressed | Under move-to-archive the .dotbak checks go vacuous: line 791 can never fail and line 816 compares empty to empty, so overwrite archiving would be untested | tests/run.sh:816
+  - rebuttal | addressed | tests/run.sh:816 | replace vacuous .dotbak checks with archive assertions
+- C-20261112-26 | 2026-11-12 | testing | medium | high | addressed | snap_tree hashes regular files only, so a dry-run-created empty archive leaves the digest unchanged; the test never exercises would-prune or would-update archive paths | tests/run.sh:65
+  - rebuttal | addressed | tests/run.sh:65 | extend snap_tree and add a dry-run-creates-no-archive test
+- C-20261112-27 | 2026-11-12 | testing | medium | high | addressed | has_action_line omits archive verbs, so idempotent-apply guards stay green while archive actions occur and new archive assertions cannot reuse the helper | tests/run.sh:133
+  - rebuttal | addressed | tests/run.sh:133 | add would-archive and archived verbs to has_action_line
+- C-20261112-28 | 2026-11-12 | testing | medium | high | addressed | The --env-name run is a no-op because the first apply already resolves primary_macos from repo .env_name, so the overlay assertion proves nothing | tests/run.sh:724
+  - rebuttal | addressed | tests/run.sh:724 | set ~/.env_name to a non-personal profile and assert the overlay is absent
+- C-20261112-29 | 2026-11-12 | testing | medium | medium | addressed | The only subset oracle is a hardcoded 178 count that encodes the macOS drop set, so it fails or lies on Linux, and test_real_repo never snapshots HOME | tests/run.sh:703
+  - rebuttal | addressed | tests/run.sh:703 | per-OS expected set and a HOME snapshot, not a bare count
+- C-20261112-30 | 2026-11-12 | maintainability | high | high | addressed | Brew block (arrays 12-17, find_brew 36-42, functions 367-403) is ~50 lines untested and unrelated to file install; delete it plus --apps/--upgrade-all, usage, README rows | files/.zsh/scripts/environment/bootstrap:367
+  - rebuttal | addressed | owner walkthrough 2026-11-12 | owner accepted: strip brew block, --apps, --upgrade-all to dotfiles-only
+- C-20261112-31 | 2026-11-12 | maintainability | high | high | addressed | run_phase, the run array, and --only only order brew and verify; with those gone one phase remains, so delete the framework and call install_dotfiles directly | files/.zsh/scripts/environment/bootstrap:420
+  - rebuttal | addressed | owner walkthrough 2026-11-12 | owner accepted: delete run_phase, run array, and --only framework
+- C-20261112-32 | 2026-11-12 | maintainability | high | high | addressed | Do not extend _env_ok to scripts: 0 of 63 basenames encode env, 18 carry OS suffixes, 45 are untagged, and reuse is inert off .zsh/env; tag 18 lines or keep scripts global | files/.zsh/scripts/environment/bootstrap:179
+  - rebuttal | addressed | owner walkthrough 2026-11-12 | owner accepted: dedicated _script_ok, never reuse _env_ok, OS-only via annotation
+- C-20261112-33 | 2026-11-12 | maintainability | medium | high | addressed | 18 tracked personal/ entries need no second manifest: PERSONAL_ENV_PROFILES hardcodes the basenames and filter_env varies at one call site; fold into manifest with one tag | docs/installer/personal.manifest:1
+  - rebuttal | addressed | owner walkthrough 2026-11-12 | owner accepted: fold personal.manifest into main manifest with one tag
+- C-20261112-34 | 2026-11-12 | maintainability | medium | high | addressed | verify_dotfiles reloads the plan, runs zsh -n on two files, then calls _doctor, which already covers drift; no test asserts it; delete it and the verify phase | files/.zsh/scripts/environment/bootstrap:408
+  - rebuttal | addressed | owner walkthrough 2026-11-12 | owner accepted: delete verify_dotfiles and the verify phase
+- C-20261112-35 | 2026-11-12 | maintainability | medium | medium | addressed | launcher template, _launcher_content/_hash, the @launcher branch, and doctor entrypoint hash only bake DOTFILES_DIR; a symlink resolves the same via ${0:A}; delete all | docs/installer/launcher:3
+  - rebuttal | addressed | owner walkthrough 2026-11-12 | owner accepted: replace launcher with a symlink entrypoint
+- C-20261112-36 | 2026-11-12 | maintainability | medium | medium | addressed | .env_name fallback to files/.env_name installs a profile the shell cannot load (env/common reads only ~/.env_name) and makes test_real_repo's gate vacuous; require ~/.env_name or --env-name | files/.zsh/scripts/environment/bootstrap:127
+  - rebuttal | addressed | owner walkthrough 2026-11-12 | owner accepted: require ~/.env_name or --env-name, delete repo fallback
+- C-20261112-37 | 2026-11-12 | maintainability | low | high | open | Parent-under-FORBIDDEN loop (169-173) is subsumed: a path whose parent is under a forbidden root is already under it; delete the loop, keep the roots and mounts | files/.zsh/scripts/environment/bootstrap:169
