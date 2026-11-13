@@ -5,6 +5,9 @@ Scope tokens: tmux/agents, zsh/bootstrap, zsh/prompt, macos/apps
 
 ## Entries
 
+- D-20261112-16 | 2026-11-12 | [find] | zsh/bootstrap | `_archive_path` fixes the date dir once at startup, so a midnight-spanning apply archives into the start date | `files/.zsh/scripts/environment/bootstrap:168`
+- D-20261112-15 | 2026-11-12 | [outcome] | zsh/bootstrap | Installer redteam converged: 37 resolved, 6 owner decisions, suite 27/27. Supersedes `.dotbak`, repo env fallback, and the 178-count oracle | `bash tests/run.sh` -> PASS 27/27
+- D-20261112-14 | 2026-11-12 | [decision] | zsh/bootstrap | Installer lossless: prune and overwrite archive to ~/.dotfiles_archive, dotfiles-only, OS-gated scripts, symlink entrypoint | `docs/critique/2026-11-12_install-archive-scope.md`
 - D-20261112-13 | 2026-11-12 | [decision] | macos/apps | Raycast joins CASKS; its `.rayconfig` export is a dated restore artifact in `history/`, live settings self-sync | `files/.zsh/scripts/environment/bootstrap:17`
 - D-20261112-12 | 2026-11-12 | [outcome] | tmux/agents | Redteam converged: 24 findings, 12 fixed, 12 rejected with evidence, suite 18 to 21 cases | `bash tests/run.sh` -> PASS 21/21
 - D-20261112-01 | 2026-11-12 | [decision] | tmux/agents | Herdr parity via pure TPM stack: hiroppy sidebar with alt+backslash focus cycling and Ctrl+Alt toggle-all, resurrect plus continuum, timvw resume, pinned by tag or SHA | `files/.tmux.conf:287`
@@ -15,12 +18,12 @@ Scope tokens: tmux/agents, zsh/bootstrap, zsh/prompt, macos/apps
 - D-20261112-09 | 2026-11-12 | [decision] | tmux/agents | Auto-restore disabled after a reboot replayed layout and typed opencode --session commands into panes, manual prefix C-r restore retained | `files/.tmux.conf:283`
 - D-20261112-08 | 2026-11-12 | [decision] | tmux/agents | Alt+backslash toggles focus into the sidebar and back via select-pane -l, Ctrl+Alt+backslash shows and hides it in all windows | `files/.tmux.conf:272`
 - D-20261112-02 | 2026-11-12 | [trap] | tmux/agents | hiroppy's TPM entry launches an interactive install-wizard when its binary is missing or version-mismatched, so setup must pre-place the matching release binary | `files/.zsh/scripts/environment/tmux_agent_setup:47`
-- D-20261112-03 | 2026-11-12 | [find] | tmux/agents | Install count is manifest entries plus the generated launcher, 178 plus 1, so a manifest addition must bump the test_real_repo expectation | `tests/run.sh:703`
+- D-20261112-03 | 2026-11-12 | [find] | tmux/agents | Install count was manifest plus launcher (178+1), so a manifest change bumped test_real_repo. Superseded by a per-OS expected set (D-20261112-15) | `tests/run.sh:703`
 
 - D-20261028-12 | 2026-10-28 | [decision] | zsh/bootstrap | Pre-rename work-profile dir retired for repo `.work`; manual backup-gated removal, installer never tracked it | `bash tests/run.sh` -> PASS 18/18
 - D-20261028-11 | 2026-10-28 | [outcome] | zsh/bootstrap | Install-flow redteam converged: 30 findings, 25 fixed, 5 rejected (1 owner-ratified); suite grew 6 to 18 cases | `bash tests/run.sh` -> PASS 18/18
 - D-20261028-10 | 2026-10-28 | [decision] | zsh/bootstrap | Same-user state forgery stays accepted residual risk; hardened with chmod 700 state dir plus wrong-hash prune regression test | `files/.zsh/scripts/environment/bootstrap:318`
-- D-20261028-09 | 2026-10-28 | [decision] | zsh/bootstrap | Env fails closed: comment-only or unknown profile aborts rc=2 with valid names; absent ~/.env_name falls back to repo default | `files/.zsh/scripts/environment/bootstrap:106-146`
+- D-20261028-09 | 2026-10-28 | [decision] | zsh/bootstrap | Env fails closed: bad or unknown profile aborts rc=2. First apply with --env-name seeds an absent ~/.env_name without overwriting | `files/.zsh/scripts/environment/bootstrap:101`
 - D-20261028-08 | 2026-10-28 | [decision] | zsh/bootstrap | Update path backs up prior managed file to <abs>.dotbak before rsync; installs and sames write nothing | `files/.zsh/scripts/environment/bootstrap:272`
 - D-20261028-07 | 2026-10-28 | [trap] | zsh/bootstrap | zsh fires function-scoped EXIT traps at function return; the lock was released instantly and guarded nothing | `files/.zsh/scripts/environment/bootstrap:456-460`
 - D-20261028-05 | 2026-10-28 | [outcome] | zsh/bootstrap | Installer hardening landed: 177-entry manifest install, destination guard, hash-gated prune, launcher, doctor, six-case runner. | `tests/run.sh`

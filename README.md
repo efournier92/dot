@@ -13,9 +13,11 @@ This repo tracks the dotfiles and configuration I use across machines. The [`fil
 
 ## Installer
 
-The installer lives at [`files/.zsh/scripts/environment/bootstrap`](./files/.zsh/scripts/environment/bootstrap). It installs only the exact files named in [`docs/installer/manifest`](./docs/installer/manifest) and records each installed path and hash in `${XDG_STATE_HOME:-$HOME/.local/state}/dot/installed.manifest`. It never mirrors a directory, never uses `--delete`, and never writes `$HOME` or an ancestor as an rsync destination.
+The installer lives at [`files/.zsh/scripts/environment/bootstrap`](./files/.zsh/scripts/environment/bootstrap). It installs only the exact files named in [`docs/installer/manifest`](./docs/installer/manifest) and records each installed path and hash in `${XDG_STATE_HOME:-$HOME/.local/state}/dot/installed.manifest`. It never mirrors a directory, never uses `--delete`, and never writes `$HOME` or an ancestor as an rsync destination. Only dotfiles are installed. There is no apps or upgrade phase.
 
-The deployed entrypoint is a generated launcher at `~/.zsh/scripts/environment/bootstrap` that `exec`s the repo script, so the code that runs cannot drift from the checkout.
+The deployed entrypoint at `~/.zsh/scripts/environment/bootstrap` is a symlink to the repo script, so the code that runs cannot drift from the checkout.
+
+Before any managed file is removed or overwritten, its previous bytes move to `~/.dotfiles_archive/<YYYY-MM-DD>/<relpath>`. A prune moves the file there and a same-day repeat gets a `.1`, `.2` suffix, so no archived copy is ever overwritten. An overwrite copies the old file there, then writes the new file through a temp file and moves it into place, so a failed write never destroys the live file.
 
 ### Usage
 
@@ -23,7 +25,7 @@ Dry-run is the default. Nothing is written without `--apply`.
 
 ```sh
 ./files/.zsh/scripts/environment/bootstrap --dry-run
-./files/.zsh/scripts/environment/bootstrap --apply --yes
+./files/.zsh/scripts/environment/bootstrap --apply --yes --env-name primary_macos
 ./files/.zsh/scripts/environment/bootstrap doctor
 ```
 
@@ -32,24 +34,23 @@ Dry-run is the default. Nothing is written without `--apply`.
 | `--dry-run` | Show pending changes and write nothing (default). |
 | `--apply` | Write changes. Requires `--yes` off a TTY. |
 | `--yes` | Skip confirmation prompts for non-interactive runs. |
-| `--apps` | Install the configured Homebrew formulae and casks. |
-| `--upgrade-all` | Run `brew upgrade` during the apps phase. |
 | `--env-name NAME` | Select the zsh environment profile without a menu. |
 | `--repo PATH` | Use `PATH` as the dotfiles repo root. |
-| `--only PHASE` | Run only `brew`, `dotfiles`, or `verify`. `brew` does nothing unless `--apps` is also passed. |
 | `doctor` | Report entrypoint and manifest drift without writing. |
 
 Run `tmux_agent_setup` once per machine after the dotfiles install. It fetches TPM, the pinned tmux plugins, and the agent sidebar binary.
 
 ### State And Pruning
 
-The state manifest is the only prune authority. A file is removed only when it is in the previous manifest, absent from the new manifest, and its current hash matches the recorded hash. A user-edited file is kept and dropped from state. Paths outside the previous manifest are never removed.
+The state manifest is the only prune authority. A file is moved to the archive, then removed, only when it is in the previous manifest, absent from the new manifest, and its current hash matches the recorded hash. A user-edited file is kept and dropped from state. Paths outside the previous manifest are never removed.
 
-An update to an existing managed file first copies the current version to `<path>.dotbak` (one rolling copy, the latest prior version); installs and unchanged applies create no backup.
+An update to an existing managed file first copies the current version to `~/.dotfiles_archive/<YYYY-MM-DD>/<relpath>`. A second same-day write of the same path takes the next `.N` suffix. Installs and unchanged applies create no archive copy.
+
+Scripts are gated by OS through manifest annotations (`@macos`, `@linux`, `@wsl`) or a filename suffix. Entries tagged `@personal` install only when the selected profile is one of `PERSONAL_ENV_PROFILES`.
 
 ### Env Profile Selection
 
-The env profile is the first non-comment, non-empty line of `~/.env_name`. If `~/.env_name` is absent, the installer falls back to the repo default at `files/.env_name` (fresh-machine bootstrap); the fallback value is validated the same way. Selection fails closed with exit code 2 when `~/.env_name` exists but yields no value (comment-only or empty), or when a resolved or `--env-name`-passed profile is not a basename of `files/.zsh/env/*` (excluding `common` and `common_<os>`) or one of the personal profiles.
+The env profile is the first non-comment, non-empty line of `~/.env_name`, or the `--env-name` flag. On first apply with `--env-name`, the installer writes that name to `~/.env_name` when absent and never overwrites it. With neither present the installer exits 2. There is no repo fallback. Selection fails closed with exit code 2 when `~/.env_name` exists but yields no value (comment-only or empty), or when a resolved or `--env-name`-passed profile is not a basename of `files/.zsh/env/*` (excluding `common` and `common_<os>`) or one of the personal profiles.
 
 ## Contribute
 
