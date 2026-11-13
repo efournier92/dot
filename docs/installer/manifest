@@ -135,17 +135,17 @@
 .zsh/scripts/download/torr
 .zsh/scripts/download/yt_audio
 .zsh/scripts/environment/apps_keep_alive
-.zsh/scripts/environment/bleachbit_clean
-.zsh/scripts/environment/boot
+.zsh/scripts/environment/bleachbit_clean @linux
+.zsh/scripts/environment/boot @linux
 .zsh/scripts/environment/env_id_get
 .zsh/scripts/environment/mount_bnk_macos
-.zsh/scripts/environment/system_update
+.zsh/scripts/environment/system_update @linux
 .zsh/scripts/environment/system_update_linux
 .zsh/scripts/environment/system_update_macos
 .zsh/scripts/environment/tmux_agent_setup
 .zsh/scripts/environment/tmux_sidebar_unfocus
 .zsh/scripts/environment/update_claude_code
-.zsh/scripts/environment/watch_for_change
+.zsh/scripts/environment/watch_for_change @linux
 .zsh/scripts/filesystem/copy_with_progress
 .zsh/scripts/filesystem/drives_linux
 .zsh/scripts/filesystem/drives_macos
@@ -170,11 +170,29 @@
 .zsh/scripts/mount/umount_macos_veracrypt
 .zsh/scripts/mount/umount_uuid_veracrypt
 .zsh/scripts/scan/scan_mac
-.zsh/scripts/sound/combined_audio_sink_enable
-.zsh/scripts/sound/connect_audio_persistently
-.zsh/scripts/sound/connect_persistently_audio_sink
-.zsh/scripts/sound/connect_persistently_sound_profile
-.zsh/scripts/sound/pulseaudio_set_default_sink
+.zsh/scripts/sound/combined_audio_sink_enable @linux
+.zsh/scripts/sound/connect_audio_persistently @linux
+.zsh/scripts/sound/connect_persistently_audio_sink @linux
+.zsh/scripts/sound/connect_persistently_sound_profile @linux
+.zsh/scripts/sound/pulseaudio_set_default_sink @linux
 .zsh/scripts/start/tmux
 .zshenv
 .gitconfig -> .config/git/config
+personal/.zsh/env/primary_common -> .zsh/env/primary_common @personal
+personal/.zsh/env/primary_macos -> .zsh/env/primary_macos @personal
+personal/.zsh/scripts/download/torr -> .zsh/scripts/download/torr @personal
+personal/.zsh/scripts/filesystem/confirm_rm_lt -> .zsh/scripts/filesystem/confirm_rm_lt @personal
+personal/.zsh/scripts/phone/adb_helpers -> .zsh/scripts/phone/adb_helpers @personal
+personal/.zsh/scripts/phone/photos_phone_copy -> .zsh/scripts/phone/photos_phone_copy @personal
+personal/.zsh/scripts/rc/rc_bank_process -> .zsh/scripts/rc/rc_bank_process @personal
+personal/.zsh/scripts/rc/rc_mkdir -> .zsh/scripts/rc/rc_mkdir @personal
+personal/.zsh/scripts/rc/rc_mount -> .zsh/scripts/rc/rc_mount @personal
+personal/.zsh/scripts/rc/rc_pending_process -> .zsh/scripts/rc/rc_pending_process @personal
+personal/.zsh/scripts/rc/rc_phone_pull -> .zsh/scripts/rc/rc_phone_pull @personal
+personal/.zsh/scripts/rc/rc_process -> .zsh/scripts/rc/rc_process @personal
+personal/.zsh/scripts/rc/rc_record -> .zsh/scripts/rc/rc_record @personal
+personal/.zsh/scripts/rc/rc_remote_audio_recieve -> .zsh/scripts/rc/rc_remote_audio_recieve @personal
+personal/.zsh/scripts/rc/rc_remote_audio_send -> .zsh/scripts/rc/rc_remote_audio_send @personal
+personal/.zsh/scripts/rc/rc_remote_clean -> .zsh/scripts/rc/rc_remote_clean @personal
+personal/.zsh/scripts/rc/rc_remote_download -> .zsh/scripts/rc/rc_remote_download @personal
+personal/.zsh/scripts/rc/rc_remote_process -> .zsh/scripts/rc/rc_remote_process @personal

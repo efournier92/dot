@@ -1,64 +1,47 @@
 #!/usr/bin/env zsh
-# bootstrap.zsh — install files from docs/installer/manifest, then optionally apps.
+# bootstrap.zsh — install files from docs/installer/manifest into $HOME.
 emulate -L zsh
 setopt no_unset no_extended_glob no_sh_word_split
-VERSION="2026-10-28.2"
+VERSION="2026-11-12.1"
 if [[ -z "$HOME" ]]; then
   print -P "%F{red}[x]%f HOME is not set — cannot determine target paths" >&2
   exit 1
 fi
 export HOME
 typeset -r HOME
-typeset -a TAPS=( joshmedeski/sesh )
-typeset -a FORMULAS=(
-  asdf eza fzf fzf-tab gh git-delta sesh lazygit lazysql neovim
-  ripgrep starship tmuxinator unison zoxide
-)
-typeset -a CASKS=( font-jetbrains-mono-nerd-font ghostty macvim raycast )
 DOTFILES_DIR="${DOTFILES_DIR:-${0:A:h:h:h:h:h}}"
 _set_paths() {
   DOTFILES_SRC="$DOTFILES_DIR/files"
   MANIFEST_FILE="$DOTFILES_DIR/docs/installer/manifest"
-  PERSONAL_MANIFEST="$DOTFILES_DIR/docs/installer/personal.manifest"
-  LAUNCHER_TEMPLATE="$DOTFILES_DIR/docs/installer/launcher"
 }
 _set_paths
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dot"
 INSTALLED="$STATE_DIR/installed.manifest"
 LOCK_DIR="$STATE_DIR/lock"
+ARCHIVE_ROOT="$HOME/.dotfiles_archive"
+ARCHIVE_DIR="$ARCHIVE_ROOT/$(date +%F)"
 ENTRYPOINT="$HOME/.zsh/scripts/environment/bootstrap"
 ENTRYPOINT_REL=".zsh/scripts/environment/bootstrap"
 typeset -a PERSONAL_ENV_PROFILES=( primary_macos primary_common )
-typeset -gi APPLY=0 YES=0 APPS=0 UPGRADE_ALL=0 DOCTOR=0 HELP=0
-typeset -g ENV_NAME_ARG="" ONLY_PHASE="" ENV_NAME="" OS=""
-typeset -gA EXPECTED PREV EXPECTED_LC
-typeset -ga MOUNTS FORBIDDEN
-find_brew() {
-  local c
-  for c in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
-    [[ -x "$c" ]] && { print -r -- "$c"; return 0; }
-  done
-  command -v brew 2>/dev/null
-}
-command_exists() { command -v "$1" >/dev/null 2>&1; }
+typeset -gi APPLY=0 YES=0 DOCTOR=0 HELP=0
+typeset -g ENV_NAME_ARG="" ENV_NAME="" OS=""
+typeset -gA EXPECTED PREV EXPECTED_LC ANN
+typeset -ga MOUNTS FORBIDDEN ANN_UNKNOWN
 log_info() { print -P "%F{cyan}[*]%f $1"; }
 log_ok()   { print -P "%F{green}[+]%f $1"; }
 log_warn() { print -P "%F{yellow}[!]%f $1" >&2; }
 log_err()  { print -P "%F{red}[x]%f $1" >&2; }
 usage() {
   cat <<'EOF'
-Usage: bootstrap [doctor] [options]
-Install dotfiles from this repo, and optionally macOS apps.
+Usage: bootstrap [--dry-run|--apply] [--yes] [--env-name NAME] [--repo PATH] [doctor] [--help]
+Install the dotfiles named in docs/installer/manifest into $HOME.
 
 Options:
   --dry-run          Show what would change; write nothing (default)
   --apply            Write changes
   --yes              Non-interactive; required for --apply off a TTY
-  --apps             Install Homebrew formulae and casks
-  --upgrade-all      Run 'brew upgrade' during the apps phase
   --env-name NAME    Select the zsh env profile without the menu
   --repo PATH        Use PATH as the dotfiles repo root
-  --only PHASE       Run only brew, dotfiles, or verify
   --doctor           Report drift without writing anything
   --help             Show this help
 EOF
@@ -69,30 +52,18 @@ parse_args() {
       --dry-run) APPLY=0 ;;
       --apply) APPLY=1 ;;
       --yes) YES=1 ;;
-      --apps) APPS=1 ;;
-      --upgrade-all) UPGRADE_ALL=1 ;;
       --env-name) (( $# >= 2 )) || { usage >&2; exit 2; }; ENV_NAME_ARG="$2"; shift ;;
       --env-name=*) ENV_NAME_ARG="${1#*=}" ;;
       --repo) (( $# >= 2 )) || { usage >&2; exit 2; }; DOTFILES_DIR="${2:A}"; _set_paths; shift ;;
       --repo=*) DOTFILES_DIR="${${1#*=}:A}"; _set_paths ;;
-      --only) (( $# >= 2 )) || { usage >&2; exit 2; }; ONLY_PHASE="$2"; shift ;;
-      --only=*) ONLY_PHASE="${1#*=}" ;;
       --doctor|doctor) DOCTOR=1 ;;
       --help|-h) HELP=1 ;;
       *) usage >&2; exit 2 ;;
     esac
     shift
   done
-  if [[ -n "$ONLY_PHASE" && "$ONLY_PHASE" != (brew|dotfiles|verify) ]]; then
-    log_err "--only must be one of: brew, dotfiles, verify"; exit 2
-  fi
 }
 _hash_file() { [[ -f "$1" ]] && shasum -a 256 "$1" | awk '{print $1}'; }
-_launcher_content() {
-  local c="$(<"$LAUNCHER_TEMPLATE")"
-  print -r -- "${c//@@DOTFILES_DIR@@/$DOTFILES_DIR}"
-}
-_launcher_hash() { _launcher_content | shasum -a 256 | awk '{print $1}'; }
 detect_os() {
   case "$(uname -s)" in
     Darwin) print -r -- macos ;;
@@ -124,8 +95,8 @@ _read_env() {
     ENV_NAME="$line"
     return
   fi
-  # minimalist: fresh-machine fallback until ~/.env_name exists — repo default
-  [[ -f "$DOTFILES_SRC/.env_name" ]] && ENV_NAME="$(_first_env_line "$DOTFILES_SRC/.env_name")"
+  log_err "no env profile: create ~/.env_name or pass --env-name"
+  exit 2
 }
 _validate_env() {
   [[ -z "$ENV_NAME" ]] && return 0
@@ -141,8 +112,17 @@ _validate_env() {
   log_err "unknown env profile: $ENV_NAME (valid: ${valid[*]})"
   exit 2
 }
+_seed_env_file() {
+  (( APPLY )) || return 0
+  [[ -n "$ENV_NAME_ARG" ]] || return 0
+  [[ ! -e "$HOME/.env_name" && ! -L "$HOME/.env_name" ]] || return 0
+  local tmp="$HOME/.env_name.tmp.$$"
+  print -r -- "$ENV_NAME" > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$HOME/.env_name" || { rm -f "$tmp"; return 1; }
+  log_ok "seeded ~/.env_name ($ENV_NAME)"
+}
 setup_forbidden() {
-  MOUNTS=(); FORBIDDEN=("$HOME/mnt" "$HOME/Library" "$HOME/.Trash" "$HOME/.dotfiles.bak")
+  MOUNTS=(); FORBIDDEN=("$HOME/mnt" "$HOME/Library" "$HOME/.Trash" "$HOME/.dotfiles.bak" "$ARCHIVE_ROOT")
   local mp
   while IFS= read -r mp; do
     [[ -n "$mp" ]] || continue
@@ -153,7 +133,10 @@ setup_forbidden() {
 }
 _under() { [[ "$1" == "$2" || "$1" == "$2"/* ]]; }
 _assert_dest() {
-  local dest="$1" rel="${2:-}" rp="${1:A}" home="${HOME:A}" f rf p
+  local dest="$1" rel="${2:-}" noref="${3:-}" rp home f rf p
+  home="${HOME:A}"
+  if [[ "$noref" == nores ]]; then rp="${1:h:A}/${1:t}"
+  else rp="${1:A}"; fi
   [[ "$dest" == / || "$rp" == "$home" ]] && { log_err "refusing to write $dest: home or root"; return 1; }
   [[ "$rp" == "$home"/* ]] || { log_err "refusing to write $dest: outside HOME"; return 1; }
   [[ -z "$rel" || "$dest" == "$HOME/$rel" ]] || { log_err "refusing to write $dest: not HOME/$rel"; return 1; }
@@ -176,34 +159,100 @@ _assert_dest() {
   done
   return 0
 }
-_env_ok() {
-  local rel="$1" f tok=""
-  [[ "$rel" == .zsh/env/* ]] || return 0
-  f="${rel#.zsh/env/}"
-  case "$f" in
-    *_mac*) tok=macos ;;
-    *_linux*) tok=linux ;;
-    *_wsl*) tok=wsl ;;
-  esac
-  if [[ -n "$ENV_NAME" ]]; then [[ -z "$tok" || "$f" == common || "$f" == "common_$OS" || "$f" == "$ENV_NAME" ]]
-  else [[ -z "$tok" || "$tok" == "$OS" ]]; fi
+_assert_archive() {
+  local dest="$1" rp="${1:A}" home="${HOME:A}" ar="${ARCHIVE_ROOT:A}" f rf
+  [[ -L "$ARCHIVE_ROOT" ]] && { log_err "refusing archive write $dest: archive root is a symlink"; return 1; }
+  [[ "$rp" == "$home"/* ]] || { log_err "refusing archive write $dest: outside HOME"; return 1; }
+  _under "$rp" "$ar" || { log_err "refusing archive write $dest: outside archive root"; return 1; }
+  for f in "${FORBIDDEN[@]}"; do
+    rf="${f:A}"
+    [[ "$rf" == "$ar" ]] && continue
+    _under "$rp" "$rf" && { log_err "refusing archive write $dest: forbidden root $f"; return 1; }
+  done
+  for f in "${MOUNTS[@]}"; do
+    [[ "$rp" == "${f:A}" ]] && { log_err "refusing archive write $dest: mount point"; return 1; }
+  done
+  return 0
+}
+_archive_path() {
+  local cand="$ARCHIVE_DIR/$1" n=1
+  while [[ -e "$cand" || -L "$cand" ]]; do
+    cand="$ARCHIVE_DIR/$1.$n"
+    (( n++ ))
+  done
+  print -r -- "$cand"
+}
+_archive_move() {
+  local rel="$1" src="$HOME/$1" dst
+  dst="$(_archive_path "$rel")"
+  _assert_archive "$dst" || return 1
+  mkdir -p "${dst:h}" || { log_err "cannot create archive dir: ${dst:h}"; return 1; }
+  mv -- "$src" "$dst" || { log_err "archive move failed: $rel"; return 1; }
+}
+_archive_copy() {
+  local rel="$1" src="$HOME/$1" dst
+  dst="$(_archive_path "$rel")"
+  _assert_archive "$dst" || return 1
+  mkdir -p "${dst:h}" || { log_err "cannot create archive dir: ${dst:h}"; return 1; }
+  cp -pP "$src" "$dst" || { log_err "archive copy failed: $rel"; return 1; }
+}
+_entry_ok() {
+  local rel="$1" annset="$2" tok osann="" b
+  local -i personal=0
+  local -a toks
+  toks=(${=annset})
+  for tok in "${toks[@]}"; do
+    case "$tok" in
+      @macos) osann=macos ;;
+      @linux) osann=linux ;;
+      @wsl) osann=wsl ;;
+      @personal) personal=1 ;;
+      *) ANN_UNKNOWN+=("$tok") ;;
+    esac
+  done
+  b="${rel:t}"
+  if [[ -z "$osann" ]]; then
+    case "$b" in
+      *_mac*) osann=macos ;;
+      *_linux*) osann=linux ;;
+      *_wsl*) osann=wsl ;;
+    esac
+  fi
+  [[ -n "$osann" && "$osann" != "$OS" ]] && return 1
+  if (( personal )); then
+    (( ${PERSONAL_ENV_PROFILES[(Ie)$ENV_NAME]} )) || return 1
+  fi
+  return 0
 }
 load_manifest() {
-  local file="$1" filter_env="$2" line src dest
+  local file="$1" line src dest ann tok seg
+  EXPECTED=(); ANN=(); ANN_UNKNOWN=()
   [[ -f "$file" ]] || { log_err "manifest missing: $file"; return 1; }
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
     [[ -z "$line" || "$line" == \#* ]] && continue
+    ann=""
+    while [[ "$line" == *[[:space:]]@* ]]; do
+      tok="${line##*[[:space:]]}"
+      [[ "$tok" == @* ]] || break
+      ann="$tok${ann:+ }$ann"
+      line="${line%[[:space:]]$tok}"
+      line="${line%"${line##*[![:space:]]}"}"
+    done
     if [[ "$line" == *' -> '* ]]; then src="${line%% -> *}"; dest="${line##* -> }"
     else src="$line"; dest="$line"; fi
-    (( filter_env )) && ! _env_ok "$dest" && continue
-    local seg="" bad=0
+    local bad=0
     [[ -z "$dest" || "$dest" == /* || "$dest" == */ || "$dest" == *//* || "$dest" == *$'\t'* ]] && bad=1
     for seg in ${(s:/:)dest}; do
       [[ "$seg" == . || "$seg" == .. ]] && bad=1
     done
     (( bad )) && { log_err "refusing manifest dest $dest: invalid path"; return 1; }
-    EXPECTED[$dest]="$src"
+    ANN[$dest]="$ann"
+    if _entry_ok "$dest" "$ann"; then
+      EXPECTED[$dest]="$src"
+    else
+      log_info "skip $dest (os/env scope)"
+    fi
   done < "$file"
 }
 _load_prev() {
@@ -220,9 +269,8 @@ _load_plan() {
   EXPECTED=(); PREV=()
   _read_env
   _validate_env
-  load_manifest "$MANIFEST_FILE" 1 || return 1
-  [[ -n "$ENV_NAME" ]] && (( ${PERSONAL_ENV_PROFILES[(Ie)$ENV_NAME]} )) && { load_manifest "$PERSONAL_MANIFEST" 0 || return 1; }
-  EXPECTED[$ENTRYPOINT_REL]='@launcher'
+  load_manifest "$MANIFEST_FILE" || return 1
+  EXPECTED[$ENTRYPOINT_REL]='@symlink'
   EXPECTED_LC=()
   local k
   for k in ${(k)EXPECTED}; do EXPECTED_LC[${k:l}]="$k"; done
@@ -232,15 +280,20 @@ install_dotfiles() {
   local rel src abs want action final srp alias
   local -i ins=0 upd=0 same=0 pruned=0 kept=0
   local -a new_lines
+  local link_target="$DOTFILES_SRC/.zsh/scripts/environment/bootstrap"
   _load_plan || return 1
+  _seed_env_file || return 1
   log_info "dotfiles: $DOTFILES_DIR (os=$OS, env=${ENV_NAME:-none})"
   (( APPLY )) || log_info "dry-run: no files will be written"
   # Validate every destination and source before the first write, so a bad
   # manifest entry cannot leave a half-applied run behind.
   for rel in ${(ok)EXPECTED}; do
-    _assert_dest "$HOME/$rel" "$rel" || return 1
+    (( ${#ANN_UNKNOWN} )) && { log_err "unknown manifest annotation: ${ANN_UNKNOWN[1]}"; return 1; }
     src="${EXPECTED[$rel]}"
-    if [[ "$src" != @launcher ]]; then
+    if [[ "$src" == '@symlink' ]]; then
+      _assert_dest "$HOME/$rel" "$rel" nores || return 1
+    else
+      _assert_dest "$HOME/$rel" "$rel" || return 1
       srp="${DOTFILES_SRC}/${src}"
       [[ -f "$srp" && "${srp:A}" == "${DOTFILES_SRC:A}"/* ]] \
         || { log_err "manifest src invalid or missing: $src"; return 1; }
@@ -248,34 +301,44 @@ install_dotfiles() {
     [[ -d "$HOME/$rel" ]] && { log_err "destination exists and is a directory: $rel"; return 1; }
   done
   for rel in ${(ok)PREV}; do [[ -n "${EXPECTED[$rel]:-}" ]] || _assert_dest "$HOME/$rel" "$rel" || return 1; done
+  if (( APPLY )); then
+    if [[ -L "$ARCHIVE_ROOT" ]]; then log_err "archive root is a symlink: $ARCHIVE_ROOT"; return 1; fi
+    if [[ -e "$ARCHIVE_ROOT" && ! -d "$ARCHIVE_ROOT" ]]; then log_err "archive root is not a directory: $ARCHIVE_ROOT"; return 1; fi
+    mkdir -p "$ARCHIVE_ROOT" "$ARCHIVE_DIR" || { log_err "cannot create archive: $ARCHIVE_DIR"; return 1; }
+    chmod 700 "$ARCHIVE_ROOT" "$ARCHIVE_DIR" || { log_err "cannot chmod archive: $ARCHIVE_ROOT"; return 1; }
+  fi
   for rel in ${(ok)EXPECTED}; do
     src="${EXPECTED[$rel]}"
     abs="$HOME/$rel"
-    _assert_dest "$abs" "$rel" || return 1
-    if [[ "$src" == @launcher ]]; then
-      want="$(_launcher_hash)"
+    if [[ "$src" == '@symlink' ]]; then
+      _assert_dest "$abs" "$rel" nores || return 1
+      want="$(_hash_file "$link_target")"
+      if [[ -L "$abs" && "$(readlink "$abs")" == "$link_target" ]]; then action=same
+      elif [[ -e "$abs" || -L "$abs" ]]; then action=update
+      else action=install; fi
     else
+      _assert_dest "$abs" "$rel" || return 1
       want="$(_hash_file "$DOTFILES_SRC/$src")"
+      if [[ ! -f "$abs" ]]; then action=install
+      elif [[ "$(_hash_file "$abs")" == "$want" ]]; then action=same
+      else action=update; fi
     fi
-    if [[ ! -f "$abs" ]]; then action=install
-    elif [[ "$(_hash_file "$abs")" == "$want" ]]; then action=same
-    else action=update; fi
     case "$action" in
       same) (( same++ )); final="$want" ;;
       *)
         if (( APPLY )); then
           mkdir -p "${abs:h}" || { log_err "cannot create ${abs:h}"; return 1; }
           if [[ "$action" == update ]]; then
-            # minimalist: rolling single .dotbak (latest prior version), no timestamps
-            cp -p "$abs" "$abs.dotbak" || { log_err "backup failed: $rel"; return 1; }
+            _archive_copy "$rel" || return 1
+            log_ok "archived $rel"
           fi
-          if [[ "$src" == @launcher ]]; then
-            local tmp="$abs.tmp.$$"
-            _launcher_content > "$tmp" && chmod 755 "$tmp" && mv -f "$tmp" "$abs" \
-              || { rm -f "$tmp"; log_err "launcher write failed: $rel"; return 1; }
+          if [[ "$src" == '@symlink' ]]; then
+            ln -sfn "$link_target" "$abs" || { log_err "symlink failed: $rel"; return 1; }
           else
-            rsync -a --one-file-system "$DOTFILES_SRC/$src" "$abs" \
-              || { log_err "rsync failed: $rel"; return 1; }
+            local tmp="$abs.tmp.$$"
+            rsync -a --one-file-system "$DOTFILES_SRC/$src" "$tmp" \
+              || { rm -f "$tmp"; log_err "rsync failed: $rel"; return 1; }
+            mv -f "$tmp" "$abs" || { rm -f "$tmp"; log_err "write failed: $rel"; return 1; }
           fi
           final="$(_hash_file "$abs")"
           if [[ "$action" == install ]]; then (( ins++ )); log_ok "installed $rel"
@@ -283,7 +346,7 @@ install_dotfiles() {
         else
           final="$want"
           if [[ "$action" == install ]]; then (( ins++ )); log_info "would install $rel"
-          else (( upd++ )); log_info "would update $rel"; fi
+          else (( upd++ )); log_info "would archive $rel"; log_info "would update $rel"; fi
         fi
         ;;
     esac
@@ -294,14 +357,26 @@ install_dotfiles() {
     alias="${EXPECTED_LC[${rel:l}]:-}"
     if [[ -n "$alias" && "$alias" != "$rel" ]]; then
       log_warn "case alias of managed file: $rel (managed as $alias)"
+      abs="$HOME/$rel"
+      if (( APPLY )) && [[ -e "$abs" ]] && ! [[ "$abs" -ef "$HOME/$alias" ]]; then
+        _assert_dest "$abs" "$rel" || return 1
+        _archive_move "$rel" || return 1
+        log_ok "archived $rel"
+      fi
       continue
     fi
     abs="$HOME/$rel"
     _assert_dest "$abs" "$rel" || return 1
     [[ -f "$abs" || -L "$abs" ]] || continue
     if [[ "$(_hash_file "$abs")" == "${PREV[$rel]}" ]]; then
-      if (( APPLY )); then rm -f "$abs" || return 1; log_ok "pruned $rel"
-      else log_info "would prune $rel"; fi
+      if (( APPLY )); then
+        _archive_move "$rel" || return 1
+        log_ok "archived $rel"
+        log_ok "pruned $rel"
+      else
+        log_info "would archive $rel"
+        log_info "would prune $rel"
+      fi
       (( pruned++ ))
     else
       log_warn "keeping modified file: $rel"
@@ -326,22 +401,16 @@ install_dotfiles() {
 }
 _doctor() {
   local -i drift=0
-  local rel abs target cur lh rh f
+  local rel abs link
   local -i missing=0 changed=0 prune=0
+  link="$DOTFILES_SRC/.zsh/scripts/environment/bootstrap"
   if [[ ! -f "$INSTALLED" ]]; then
     print -r -- "doctor: installed manifest missing: $INSTALLED"; drift=1
   fi
-  if [[ ! -e "$ENTRYPOINT" && ! -L "$ENTRYPOINT" ]]; then
-    print -r -- "doctor: entrypoint missing: $ENTRYPOINT"; drift=1
-  elif [[ -L "$ENTRYPOINT" ]]; then
-    print -r -- "doctor: entrypoint is a symlink; apply will replace it"; drift=1
-  else
-    lh="$(_launcher_hash)"
-    cur="$(_hash_file "$ENTRYPOINT")"
-    rh="$(_hash_file "$DOTFILES_SRC/.zsh/scripts/environment/bootstrap")"
-    if [[ "$cur" != "$lh" && "$cur" != "$rh" ]]; then
-      print -r -- "doctor: entrypoint is stale or baked with another repo path"; drift=1
-    fi
+  if [[ ! -L "$ENTRYPOINT" ]]; then
+    print -r -- "doctor: entrypoint is not a symlink: $ENTRYPOINT"; drift=1
+  elif [[ "$(readlink "$ENTRYPOINT")" != "$link" ]]; then
+    print -r -- "doctor: entrypoint target drift: $ENTRYPOINT"; drift=1
   fi
   for rel in ${(ok)EXPECTED}; do
     [[ "$rel" == "$ENTRYPOINT_REL" ]] && continue
@@ -363,77 +432,6 @@ _doctor() {
   (( drift == 0 )) && { print -r -- "doctor: clean (v$VERSION)"; return 0; }
   print -r -- "doctor: $missing missing, $changed changed, $prune prunable"
   return 1
-}
-brew() {
-  local b; b="$(find_brew)" || { log_err "brew binary not found"; return 127; }
-  "$b" "$@"
-}
-brew_install_if_missing() {
-  brew list --formula "$1" >/dev/null 2>&1 && return 0
-  brew install "$1" || { log_warn "failed to install formula '$1'"; return 1; }
-}
-brew_cask_install_if_missing() {
-  brew list --cask "$1" >/dev/null 2>&1 && return 0
-  brew install --cask "$1" || { log_warn "failed to install cask '$1'"; return 1; }
-}
-brew_tap_if_missing() {
-  brew tap-info "$1" >/dev/null 2>&1 && return 0
-  brew tap "$1" || { log_warn "failed to tap '$1'"; return 1; }
-  brew tap --trust "$1" >/dev/null 2>&1 || brew trust "$1" >/dev/null 2>&1 || true
-}
-bootstrap_homebrew() {
-  find_brew >/dev/null 2>&1 && { log_info "Homebrew present"; return 0; }
-  log_info "installing Homebrew"
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
-    || { log_err "Homebrew installer failed"; return 1; }
-  local b; b="$(find_brew)" || { log_err "brew not found after install"; return 1; }
-  case "$b" in
-    /opt/homebrew/bin/brew) eval "$(/opt/homebrew/bin/brew shellenv)" ;;
-    /usr/local/bin/brew) eval "$(/usr/local/bin/brew shellenv)" ;;
-  esac
-}
-install_brew_apps() {
-  find_brew >/dev/null 2>&1 || { log_warn "brew missing — skipping apps"; return 1; }
-  brew update || log_warn "'brew update' failed — continuing"
-  local x
-  for x in "${TAPS[@]}"; do brew_tap_if_missing "$x"; done
-  for x in "${FORMULAS[@]}"; do brew_install_if_missing "$x"; done
-  for x in "${CASKS[@]}"; do brew_cask_install_if_missing "$x"; done
-  (( UPGRADE_ALL )) && { brew upgrade || log_warn "'brew upgrade' failed"; }
-}
-setup_dotfiles() {
-  [[ -d "$DOTFILES_DIR" ]] || { log_err "dotfiles repo missing: $DOTFILES_DIR"; return 1; }
-  install_dotfiles
-}
-verify_dotfiles() {
-  local -i failed=0
-  local f dout
-  _load_plan || return 1
-  for f in "$HOME/.zshenv" "$HOME/.zsh/.zshrc"; do
-    if [[ ! -f "$f" ]]; then log_err "missing $f"; failed=1; continue; fi
-    if zsh -n "$f"; then log_ok "syntax ok: $f"; else log_err "syntax error: $f"; failed=1; fi
-  done
-  if dout="$(_doctor)"; then log_ok "doctor clean"
-  else print -r -- "$dout"; log_err "doctor reports drift"; failed=1; fi
-  (( failed == 0 ))
-}
-run_phase() {
-  local name="$1"
-  case "$name" in
-    brew)
-      (( APPS )) || { log_info "apps not requested — skipping brew phase (use --apps)"; return 0; }
-      if (( ! APPLY )); then log_info "dry-run: skipping brew phase"; return 0; fi
-      bootstrap_homebrew || return 1
-      install_brew_apps || return 1
-      ;;
-    dotfiles) setup_dotfiles || return 1 ;;
-    verify)
-      if (( ! APPLY )); then log_info "dry-run: skipping verify phase"; return 0; fi
-      verify_dotfiles || return 1
-      ;;
-    *) log_err "unknown phase '$name'"; return 1 ;;
-  esac
-  log_ok "phase complete: $name"
 }
 _release_lock() { rm -f "$LOCK_DIR/pid"; rmdir "$LOCK_DIR" 2>/dev/null; }
 _acquire_lock() {
@@ -475,7 +473,6 @@ main() {
   setup_forbidden
   [[ -n "${HOME:-}" && -d "$HOME" ]] || { log_err "HOME is not set or is not a directory"; exit 1; }
   [[ -f "$MANIFEST_FILE" ]] || { log_err "manifest missing: $MANIFEST_FILE"; exit 1; }
-  [[ -f "$LAUNCHER_TEMPLATE" ]] || { log_err "launcher template missing: $LAUNCHER_TEMPLATE"; exit 1; }
   _assert_dest "$STATE_DIR" "" || exit 1
   if (( DOCTOR )); then _load_plan || exit 1; _doctor; exit $?; fi
   if (( ! APPLY )); then
@@ -489,12 +486,8 @@ main() {
     [[ "$reply" == [yY] ]] || { log_err "aborted by user"; exit 1; }
   fi
   (( APPLY )) && { _acquire_lock || exit 1; }
-  local -a run
-  if [[ -n "$ONLY_PHASE" ]]; then run=("$ONLY_PHASE"); else run=( brew dotfiles verify ); fi
-  local phase
-  for phase in "${run[@]}"; do
-    run_phase "$phase" || exit 1
-  done
+  [[ -d "$DOTFILES_DIR" ]] || { log_err "dotfiles repo missing: $DOTFILES_DIR"; return 1; }
+  install_dotfiles || exit 1
   log_ok "bootstrap complete (v$VERSION)"
 }
 trap '_release_lock' INT TERM

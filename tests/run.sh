@@ -7,19 +7,10 @@ set -u
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 SCRIPT="$REPO_ROOT/files/.zsh/scripts/environment/bootstrap"
-LAUNCHER_TEMPLATE="$REPO_ROOT/docs/installer/launcher"
 ZSH_BIN=${ZSH_BIN:-zsh}
 
 if [ ! -f "$SCRIPT" ]; then
   printf 'HARNESS-ERROR: installer not found: %s\n' "$SCRIPT" >&2
-  exit 2
-fi
-if [ ! -f "$LAUNCHER_TEMPLATE" ]; then
-  printf 'HARNESS-ERROR: launcher template not found: %s\n' "$LAUNCHER_TEMPLATE" >&2
-  exit 2
-fi
-if ! grep -q '@@DOTFILES_DIR@@' "$LAUNCHER_TEMPLATE"; then
-  printf 'HARNESS-ERROR: launcher template lacks @@DOTFILES_DIR@@: %s\n' "$LAUNCHER_TEMPLATE" >&2
   exit 2
 fi
 
@@ -58,27 +49,45 @@ new_home() {
   printf '%s\n' "$_home"
 }
 
-# Whole-tree digest: paths plus contents, so mtime-preserving rewrites
-# (rsync -a) and in-place rewrites are both caught. Directories and unreadable
-# entries fall out of the digest via shasum's own skipping; only regular-file
-# state matters for these tests.
+# Whole-tree digest: paths, contents, symlink targets, and directory presence,
+# so mtime-preserving rewrites (rsync -a), in-place rewrites, retargeted links,
+# and new empty directories are all caught. An optional second arg prunes one
+# path, used to ignore the lock/state scaffolding a refused run may create.
 snap_tree() {
-  find "$1" -exec shasum -a 256 {} + 2>/dev/null | sort | shasum -a 256 | awk '{print $1}'
+  _excl=${2:-}
+  (
+    cd "$1" || exit 1
+    if [ -n "$_excl" ]; then
+      find . -path "$_excl" -prune -o -print
+    else
+      find . -print
+    fi
+  ) | LC_ALL=C sort | while IFS= read -r _p; do
+    if [ -L "$_p" ]; then
+      printf 'L %s -> %s\n' "$_p" "$(readlink "$_p")"
+    elif [ -d "$_p" ]; then
+      printf 'D %s\n' "$_p"
+    elif [ -f "$_p" ]; then
+      printf 'F %s %s\n' "$_p" "$(shasum -a 256 "$_p" | awk '{print $1}')"
+    fi
+  done | shasum -a 256 | awk '{print $1}'
 }
 
 # new_repo <dir> <manifest-text>
-# Fixture repos carry a copy of the real bootstrap so the deployed launcher
-# has something real to exec (C-20261028-15).
+# Fixture repos carry a copy of the real bootstrap so the deployed symlink
+# has something real to point at. A `fixture` env profile keeps _validate_env
+# happy for the many tests that do not care about env selection.
 new_repo() {
   _repo=$1
   _manifest=$2
-  mkdir -p "$_repo/docs/installer" "$_repo/files/.zsh/scripts/environment" || return 1
-  cp "$LAUNCHER_TEMPLATE" "$_repo/docs/installer/launcher" || return 1
+  mkdir -p "$_repo/docs/installer" "$_repo/files/.zsh/scripts/environment" "$_repo/files/.zsh/env" || return 1
   cp "$SCRIPT" "$_repo/files/.zsh/scripts/environment/bootstrap" || return 1
+  write_file "$_repo/files/.zsh/env/fixture" 'fixture-env' || return 1
   write_file "$_repo/docs/installer/manifest" "$_manifest" || return 1
 
   printf '%s\n' "$_manifest" | while IFS= read -r _line; do
-    _src=$(printf '%s' "$_line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    _src=$(printf '%s' "$_line" | sed 's/[[:space:]]@[^[:space:]]*//g' \
+      | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     case "$_src" in
       ''|\#*) continue ;;
     esac
@@ -99,6 +108,7 @@ new_repo() {
 
 # invoke_install <home> <repo> [flags...]
 # Sets RC, OUT, ERR. TEST_PATH_PREFIX is prepended to PATH when set.
+# A valid --env-name is supplied by default; NO_ENV=1 suppresses it.
 # stdin is always /dev/null so TTY detection is deterministic.
 invoke_install() {
   _home=$1
@@ -109,6 +119,9 @@ invoke_install() {
   _path=$PATH
   if [ -n "$TEST_PATH_PREFIX" ]; then
     _path="$TEST_PATH_PREFIX:$PATH"
+  fi
+  if [ -z "${NO_ENV:-}" ]; then
+    set -- --env-name "${TEST_ENV_NAME:-fixture}" "$@"
   fi
   # State and lock metadata live under the fake HOME's default state path.
   PATH="$_path" HOME="$_home" XDG_STATE_HOME="$_home/.local/state" \
@@ -130,7 +143,7 @@ combined_output() {
 }
 
 has_action_line() {
-  combined_output | grep -Eq '^\[[+*]\] (installed|updated|pruned|would install|would update|would prune) '
+  combined_output | grep -Eq '^\[[+*]\] (installed|updated|pruned|archived|would install|would update|would prune|would archive) '
 }
 
 # Require the actual log_err [x] marker so bare usage output never passes.
@@ -274,6 +287,18 @@ test_prune_safety() {
     fail "unmodified pruned file still exists: $_home/.zsh/old.conf"
     return 1
   fi
+  _today=$(date +%F)
+  _arch="$_home/.dotfiles_archive/$_today/.zsh/old.conf"
+  if [ ! -f "$_arch" ]; then
+    fail "pruned file missing from archive: $_arch"
+    return 1
+  fi
+  _old="$CASE_ROOT/expected.prune.old"
+  write_file "$_old" 'old-bytes' || return 1
+  if ! cmp -s "$_old" "$_arch"; then
+    fail "archived prune bytes differ: $_arch"
+    return 1
+  fi
   if [ ! -f "$_home/.zsh/edited.conf" ]; then
     fail "user-edited pruned file was deleted: $_home/.zsh/edited.conf"
     return 1
@@ -295,7 +320,7 @@ guard_case() {
 guard.conf -> $_dest" || return 1
   write_file "$_repo/files/guard.conf" 'guard-bytes' || return 1
 
-  _before=$(snap_tree "$_home")
+  _before=$(snap_tree "$_home" './.local')
   invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -eq 0 ]; then
     fail "unsafe destination accepted: $_dest"
@@ -305,7 +330,7 @@ guard.conf -> $_dest" || return 1
     fail "no [x] error line for unsafe destination: $_dest => $ERR"
     return 1
   fi
-  if [ "$_before" != "$(snap_tree "$_home")" ]; then
+  if [ "$_before" != "$(snap_tree "$_home" './.local')" ]; then
     fail "unsafe destination run still wrote under HOME: $_dest"
     return 1
   fi
@@ -408,7 +433,7 @@ src_refusal_case() {
   new_repo "$_repo" "$BASE_MANIFEST
 $_line" || return 1
   rm -f "$_repo/files/missing.conf"
-  _before=$(snap_tree "$_home")
+  _before=$(snap_tree "$_home" './.local')
   invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -eq 0 ]; then
     fail "invalid src accepted ($_label): $_line"
@@ -418,7 +443,7 @@ $_line" || return 1
     fail "no 'manifest src' error for $_label: $ERR"
     return 1
   fi
-  if [ "$_before" != "$(snap_tree "$_home")" ]; then
+  if [ "$_before" != "$(snap_tree "$_home" './.local')" ]; then
     fail "src refusal wrote under HOME anyway ($_label)"
     return 1
   fi
@@ -439,7 +464,7 @@ dest_lint_case() {
   _repo="$CASE_ROOT/repo.dest.$_label"
   new_repo "$_repo" "$BASE_MANIFEST
 guard.conf -> $_dest" || return 1
-  _before=$(snap_tree "$_home")
+  _before=$(snap_tree "$_home" './.local')
   invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -eq 0 ]; then
     fail "lint-invalid dest accepted: $_dest"
@@ -449,7 +474,7 @@ guard.conf -> $_dest" || return 1
     fail "no dest-lint refusal for $_dest: $ERR"
     return 1
   fi
-  if [ "$_before" != "$(snap_tree "$_home")" ]; then
+  if [ "$_before" != "$(snap_tree "$_home" './.local')" ]; then
     fail "dest-lint refusal wrote under HOME anyway: $_dest"
     return 1
   fi
@@ -468,7 +493,7 @@ test_dest_dir_conflict() {
   new_repo "$_repo" "$BASE_MANIFEST
 .zsh/conflict" || return 1
   write_file "$_home/.zsh/conflict/inner" 'inner-bytes' || return 1
-  _before=$(snap_tree "$_home")
+  _before=$(snap_tree "$_home" './.local')
   invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -eq 0 ]; then
     fail "existing directory at managed dest accepted"
@@ -478,7 +503,7 @@ test_dest_dir_conflict() {
     fail "no dir-conflict error: $ERR"
     return 1
   fi
-  if [ "$_before" != "$(snap_tree "$_home")" ]; then
+  if [ "$_before" != "$(snap_tree "$_home" './.local')" ]; then
     fail "dir-conflict refusal mutated HOME"
     return 1
   fi
@@ -604,7 +629,7 @@ test_lock_lifecycle() {
   _try=0
   while [ "$_try" -lt 6 ]; do
     HOME="$_home" XDG_STATE_HOME="$_home/.local/state" \
-      "$ZSH_BIN" "$SCRIPT" --repo "$_repo" --apply --yes \
+      "$ZSH_BIN" "$SCRIPT" --repo "$_repo" --apply --yes --env-name fixture \
       >"$CASE_ROOT/kill.out" 2>"$CASE_ROOT/kill.err" </dev/null &
     _bpid=$!
     # minimalist: poll for the lock dir, then kill — a fixed sleep races the
@@ -652,56 +677,125 @@ test_nontty_apply() {
   fi
 }
 
-# C-20261028-15: the deployed launcher is executable and honors DOTFILES_DIR.
-test_launcher_exec() {
-  _home=$(new_home launch) || return 1
-  _repo_a="$CASE_ROOT/repo.launch.a"
-  _repo_b="$CASE_ROOT/repo.launch.b"
-  new_repo "$_repo_a" "$BASE_MANIFEST
-.zsh/foo.conf" || return 1
-  new_repo "$_repo_b" "$BASE_MANIFEST
+# The entrypoint is a symlink to the repo script; doctor flags a retargeted
+# link as drift.
+test_symlink_entrypoint() {
+  _home=$(new_home symlink) || return 1
+  _repo="$CASE_ROOT/repo.symlink"
+  new_repo "$_repo" "$BASE_MANIFEST
 .zsh/foo.conf" || return 1
 
-  invoke_install "$_home" "$_repo_a" --apply --yes
+  invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -ne 0 ]; then
     fail "apply exited $RC: $ERR"
     return 1
   fi
-  _deployed="$_home/.zsh/scripts/environment/bootstrap"
-
-  HOME="$_home" XDG_STATE_HOME="$_home/.local/state" \
-    "$ZSH_BIN" "$_deployed" doctor >"$CASE_ROOT/launch.out" 2>"$CASE_ROOT/launch.err" </dev/null
-  if [ "$?" -ne 0 ]; then
-    fail "deployed launcher doctor failed: $(cat "$CASE_ROOT/launch.err")"
+  _ep="$_home/.zsh/scripts/environment/bootstrap"
+  if [ ! -L "$_ep" ]; then
+    fail "entrypoint is not a symlink: $_ep"
     return 1
   fi
-  if ! grep -q 'doctor: clean' "$CASE_ROOT/launch.out"; then
-    fail "deployed launcher doctor not clean: $(cat "$CASE_ROOT/launch.out")"
+  _exp_tgt=$(CDPATH= cd -- "$_repo/files/.zsh/scripts/environment" && pwd -P)/bootstrap
+  if [ "$(readlink "$_ep")" != "$_exp_tgt" ]; then
+    fail "entrypoint target $(readlink "$_ep") != $_exp_tgt"
     return 1
   fi
 
-  HOME="$_home" XDG_STATE_HOME="$_home/.local/state" DOTFILES_DIR="$_repo_b" \
-    "$ZSH_BIN" "$_deployed" >"$CASE_ROOT/launch.out" 2>"$CASE_ROOT/launch.err" </dev/null
-  # minimalist: match the repo basename, not the full path — the script
-  # prints the :A-resolved (/private/...) form of the repo path
-  if ! { cat "$CASE_ROOT/launch.out"; cat "$CASE_ROOT/launch.err"; } | strip_ansi \
-    | grep -Eq "dotfiles: .*repo\.launch\.b "; then
-    fail "deployed launcher did not exec the DOTFILES_DIR override repo: $(cat "$CASE_ROOT/launch.out")"
+  invoke_install "$_home" "$_repo" doctor
+  if [ "$RC" -ne 0 ]; then
+    fail "doctor not clean after apply: $(combined_output | tr '\n' ' ')"
+    return 1
+  fi
+  if ! combined_output | grep -q 'doctor: clean'; then
+    fail "doctor did not report clean: $(combined_output | tr '\n' ' ')"
+    return 1
+  fi
+
+  ln -sfn /bin/true "$_ep" || return 1
+  invoke_install "$_home" "$_repo" doctor
+  if [ "$RC" -eq 0 ]; then
+    fail "doctor accepted a retargeted entrypoint"
+    return 1
+  fi
+  if ! combined_output | grep -Eqi 'entrypoint'; then
+    fail "retargeted-entrypoint drift unclear: $(combined_output | tr '\n' ' ')"
     return 1
   fi
 }
 
-# C-20261028-16: the real repo installs fully, idempotently, and the personal
-# overlay is gated on --env-name. Reads the real repo; writes only fake HOMEs.
+# Independent oracle for the real manifest: replica of the OS and personal
+# gates, emitting the dest paths expected for one OS.
+expected_dests() {
+  _os=$1
+  _personal=$2
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    _line=${_line%$'\r'}
+    case "$_line" in ''|\#*) continue ;; esac
+    _ann=""
+    while :; do
+      case "$_line" in
+        *[[:space:]]@*) ;;
+        *) break ;;
+      esac
+      _tok=${_line##*[[:space:]]}
+      case "$_tok" in
+        @*) _ann="$_ann $_tok"; _line=${_line%[[:space:]]$_tok} ;;
+        *) break ;;
+      esac
+    done
+    case "$_line" in
+      *' -> '*) _dest=${_line##* -> } ;;
+      *) _dest=$_line ;;
+    esac
+    _b=${_dest##*/}
+    _osann=""
+    case " $_ann " in
+      *' @macos '*) _osann=macos ;;
+      *' @linux '*) _osann=linux ;;
+      *' @wsl '*) _osann=wsl ;;
+    esac
+    if [ -z "$_osann" ]; then
+      case "$_b" in
+        *_mac*) _osann=macos ;;
+        *_linux*) _osann=linux ;;
+        *_wsl*) _osann=wsl ;;
+      esac
+    fi
+    if [ -n "$_osann" ] && [ "$_osann" != "$_os" ]; then continue; fi
+    case " $_ann " in
+      *' @personal '*) [ "$_personal" = 1 ] || continue ;;
+    esac
+    printf '%s\n' "$_dest"
+  done < "$REPO_ROOT/docs/installer/manifest"
+}
+
+# C-20261028-16: the real repo installs the per-OS expected set, idempotently,
+# and leaves HOME (including the archive tree) byte-identical on reapply.
 test_real_repo() {
   _home=$(new_home real) || return 1
-  invoke_install "$_home" "$REPO_ROOT" --only dotfiles --apply --yes
+  _os=linux
+  _osenv=primary_linux_ubuntu_gnome
+  case "$(uname -s)" in
+    Darwin) _os=macos; _osenv=work_macos_silicon ;;
+  esac
+  TEST_ENV_NAME="$_osenv"
+  invoke_install "$_home" "$REPO_ROOT" --apply --yes
   if [ "$RC" -ne 0 ]; then
     fail "real-repo install exited $RC: $ERR"
     return 1
   fi
-  if ! combined_output | grep -Eq '180 installed'; then
-    fail "real-repo install count wrong: $(combined_output | grep 'installed' | tr '\n' ' ')"
+
+  { expected_dests "$_os" 0; printf '%s\n' '.zsh/scripts/environment/bootstrap'; } \
+    | sort >"$CASE_ROOT/expected.real"
+  sed -n 's/^[^\t]*\t//p' "$_home/.local/state/dot/installed.manifest" \
+    | sort >"$CASE_ROOT/actual.real"
+  if ! diff -u "$CASE_ROOT/expected.real" "$CASE_ROOT/actual.real" >"$CASE_ROOT/real.diff"; then
+    fail "real-repo installed set wrong: $(tr '\n' ' ' <"$CASE_ROOT/real.diff")"
+    return 1
+  fi
+  _n=$(wc -l <"$CASE_ROOT/expected.real" | tr -d ' ')
+  if ! combined_output | grep -Eq "$_n installed"; then
+    fail "real-repo install count wrong (want $_n): $(combined_output | grep 'installed' | tr '\n' ' ')"
     return 1
   fi
 
@@ -711,7 +805,8 @@ test_real_repo() {
     return 1
   fi
 
-  invoke_install "$_home" "$REPO_ROOT" --only dotfiles --apply --yes
+  _before=$(snap_tree "$_home")
+  invoke_install "$_home" "$REPO_ROOT" --apply --yes
   if [ "$RC" -ne 0 ]; then
     fail "real-repo second apply exited $RC: $ERR"
     return 1
@@ -720,19 +815,13 @@ test_real_repo() {
     fail "real-repo second apply not idempotent: $(combined_output | grep 'installed' | tr '\n' ' ')"
     return 1
   fi
-
-  invoke_install "$_home" "$REPO_ROOT" --only dotfiles --apply --yes --env-name primary_macos
-  if [ "$RC" -ne 0 ]; then
-    fail "env-name apply exited $RC: $ERR"
-    return 1
-  fi
-  if [ ! -f "$_home/.zsh/env/primary_macos" ]; then
-    fail "personal overlay entry not installed for primary_macos"
+  if [ "$_before" != "$(snap_tree "$_home")" ]; then
+    fail "real-repo second apply changed HOME or the archive tree"
     return 1
   fi
 
   _home2=$(new_home realnosuch) || return 1
-  invoke_install "$_home2" "$REPO_ROOT" --only dotfiles --apply --yes --env-name nosuchenv
+  invoke_install "$_home2" "$REPO_ROOT" --apply --yes --env-name nosuchenv
   # fail-closed (C-20261028-19): unknown profile aborts rc=2 before any install
   if [ "$RC" -ne 2 ]; then
     fail "nosuchenv apply exited $RC (want 2): $ERR"
@@ -760,7 +849,7 @@ printf '%s\n' \\
 EOF
   chmod +x "$_fakebin/mount" || return 1
 
-  _before=$(snap_tree "$_home")
+  _before=$(snap_tree "$_home" './.local')
   TEST_PATH_PREFIX="$_fakebin"
   invoke_install "$_home" "$_repo" --apply --yes
   TEST_PATH_PREFIX=""
@@ -772,49 +861,200 @@ EOF
     fail "mount refusal message unclear: $ERR"
     return 1
   fi
-  if [ "$_before" != "$(snap_tree "$_home")" ]; then
+  if [ "$_before" != "$(snap_tree "$_home" './.local')" ]; then
     fail "mount refusal wrote under HOME anyway"
     return 1
   fi
 }
 
-# Owner decision: update path backs up to a rolling .dotbak before overwrite;
-# installs and idempotent applies create none.
-test_update_backup() {
-  _home=$(new_home bak) || return 1
-  _repo="$CASE_ROOT/repo.bak"
+# The overwrite path archives the old bytes before writing the new version;
+# no .dotbak is ever created and an idempotent apply skips the archive.
+test_archive_on_update() {
+  _home=$(new_home arch) || return 1
+  _repo="$CASE_ROOT/repo.arch"
   new_repo "$_repo" "$BASE_MANIFEST
 .zsh/foo.conf" || return 1
 
   invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -ne 0 ]; then fail "first install exited $RC: $ERR"; return 1; fi
-  if [ -e "$_home/.zsh/foo.conf.dotbak" ]; then fail "install created a .dotbak"; return 1; fi
+  _today=$(date +%F)
+  _arch="$_home/.dotfiles_archive/$_today/.zsh/foo.conf"
+  if [ -e "$_arch" ]; then fail "install created an archive copy"; return 1; fi
 
   write_file "$_home/.zsh/foo.conf" 'user-edit-bytes' || return 1
   invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -ne 0 ]; then fail "update apply exited $RC: $ERR"; return 1; fi
+  if ! combined_output | grep -Eq 'archived \.zsh/foo\.conf'; then
+    fail "no archived line: $(combined_output | tr '\n' ' ')"; return 1
+  fi
   if ! combined_output | grep -Eq 'updated \.zsh/foo\.conf'; then
     fail "no update line: $(combined_output | tr '\n' ' ')"; return 1
   fi
-  _old="$CASE_ROOT/expected.bak.old"
+  _old="$CASE_ROOT/expected.arch.old"
   write_file "$_old" 'user-edit-bytes' || return 1
-  if ! cmp -s "$_old" "$_home/.zsh/foo.conf.dotbak"; then
-    fail ".dotbak does not hold the old content"; return 1
+  if ! cmp -s "$_old" "$_arch"; then
+    fail "archive does not hold the old content: $_arch"; return 1
   fi
-  _new="$CASE_ROOT/expected.bak.new"
+  _new="$CASE_ROOT/expected.arch.new"
   write_file "$_new" 'fixture:.zsh/foo.conf' || return 1
   if ! cmp -s "$_new" "$_home/.zsh/foo.conf"; then
     fail "managed file not updated to repo content"; return 1
   fi
+  if [ -e "$_home/.zsh/foo.conf.dotbak" ]; then
+    fail "update created a .dotbak"; return 1
+  fi
 
-  _bakhash=$(shasum -a 256 "$_home/.zsh/foo.conf.dotbak" | awk '{print $1}')
+  _archhash=$(shasum -a 256 "$_arch" | awk '{print $1}')
   invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -ne 0 ]; then fail "second apply exited $RC: $ERR"; return 1; fi
   if has_action_line; then
     fail "idempotent apply reported an action: $(combined_output | tr '\n' ' ')"; return 1
   fi
-  if [ "$_bakhash" != "$(shasum -a 256 "$_home/.zsh/foo.conf.dotbak" | awk '{print $1}')" ]; then
-    fail ".dotbak changed on idempotent apply"; return 1
+  if [ "$_archhash" != "$(shasum -a 256 "$_arch" | awk '{print $1}')" ]; then
+    fail "archive changed on idempotent apply"; return 1
+  fi
+}
+
+# Two same-day updates of one path keep both archived versions.
+test_archive_same_day() {
+  _home=$(new_home sameday) || return 1
+  _repo="$CASE_ROOT/repo.sameday"
+  new_repo "$_repo" "$BASE_MANIFEST
+.zsh/foo.conf" || return 1
+  _today=$(date +%F)
+  _dir="$_home/.dotfiles_archive/$_today/.zsh"
+
+  invoke_install "$_home" "$_repo" --apply --yes
+  if [ "$RC" -ne 0 ]; then fail "install exited $RC: $ERR"; return 1; fi
+
+  write_file "$_home/.zsh/foo.conf" 'edit-one' || return 1
+  invoke_install "$_home" "$_repo" --apply --yes
+  if [ "$RC" -ne 0 ]; then fail "first update exited $RC: $ERR"; return 1; fi
+
+  write_file "$_home/.zsh/foo.conf" 'edit-two' || return 1
+  invoke_install "$_home" "$_repo" --apply --yes
+  if [ "$RC" -ne 0 ]; then fail "second update exited $RC: $ERR"; return 1; fi
+
+  _one="$CASE_ROOT/expected.sameday.one"
+  _two="$CASE_ROOT/expected.sameday.two"
+  write_file "$_one" 'edit-one' || return 1
+  write_file "$_two" 'edit-two' || return 1
+  if ! cmp -s "$_one" "$_dir/foo.conf"; then
+    fail "first same-day archive missing or wrong: $_dir/foo.conf"; return 1
+  fi
+  if ! cmp -s "$_two" "$_dir/foo.conf.1"; then
+    fail "second same-day archive missing or wrong: $_dir/foo.conf.1"; return 1
+  fi
+}
+
+# Dry-run creates no archive root at all.
+test_dry_run_no_archive() {
+  _home=$(new_home dryarch) || return 1
+  _repo="$CASE_ROOT/repo.dryarch"
+  new_repo "$_repo" "$BASE_MANIFEST
+.zsh/foo.conf" || return 1
+
+  invoke_install "$_home" "$_repo" --dry-run
+  if [ "$RC" -ne 0 ]; then fail "dry-run exited $RC: $ERR"; return 1; fi
+  if [ -e "$_home/.dotfiles_archive" ]; then
+    fail "dry-run created ~/.dotfiles_archive"
+    return 1
+  fi
+  if [ -e "$_home/.local/state" ]; then
+    fail "dry-run created installer state"
+    return 1
+  fi
+}
+
+# OS-scoped scripts: @linux is absent on macOS, untagged and `_macos` install.
+test_script_os_filter() {
+  _home=$(new_home osfilter) || return 1
+  _repo="$CASE_ROOT/repo.osfilter"
+  new_repo "$_repo" "$BASE_MANIFEST
+.zsh/scripts/sound/pulseaudio_set_default_sink @linux
+.zsh/scripts/env/untagged
+.zsh/scripts/filesystem/rm_mac" || return 1
+
+  invoke_install "$_home" "$_repo" --apply --yes
+  if [ "$RC" -ne 0 ]; then fail "apply exited $RC: $ERR"; return 1; fi
+  if [ ! -f "$_home/.zsh/scripts/env/untagged" ]; then
+    fail "untagged script did not install"
+    return 1
+  fi
+  case "$(uname -s)" in
+    Darwin)
+      if [ -e "$_home/.zsh/scripts/sound/pulseaudio_set_default_sink" ]; then
+        fail "@linux script installed on macOS"
+        return 1
+      fi
+      if [ ! -f "$_home/.zsh/scripts/filesystem/rm_mac" ]; then
+        fail "_macos script missing on macOS"
+        return 1
+      fi
+      ;;
+    *)
+      if [ ! -f "$_home/.zsh/scripts/sound/pulseaudio_set_default_sink" ]; then
+        fail "@linux script missing on Linux"
+        return 1
+      fi
+      if [ -e "$_home/.zsh/scripts/filesystem/rm_mac" ]; then
+        fail "_macos script installed on Linux"
+        return 1
+      fi
+      ;;
+  esac
+}
+
+# @personal entries install only for PERSONAL_ENV_PROFILES.
+test_personal_gate() {
+  _home=$(new_home personal) || return 1
+  _repo="$CASE_ROOT/repo.personal"
+  new_repo "$_repo" "$BASE_MANIFEST
+.zsh/scripts/rc/rc_test @personal
+.zsh/scripts/plain" || return 1
+
+  TEST_ENV_NAME=primary_macos
+  invoke_install "$_home" "$_repo" --apply --yes
+  if [ "$RC" -ne 0 ]; then fail "personal apply exited $RC: $ERR"; return 1; fi
+  if [ ! -f "$_home/.zsh/scripts/rc/rc_test" ]; then
+    fail "@personal entry missing for primary_macos"
+    return 1
+  fi
+
+  _home2=$(new_home nonpersonal) || return 1
+  TEST_ENV_NAME=fixture
+  invoke_install "$_home2" "$_repo" --apply --yes
+  if [ "$RC" -ne 0 ]; then fail "non-personal apply exited $RC: $ERR"; return 1; fi
+  if [ -e "$_home2/.zsh/scripts/rc/rc_test" ]; then
+    fail "@personal entry installed for a non-personal profile"
+    return 1
+  fi
+  if [ ! -f "$_home2/.zsh/scripts/plain" ]; then
+    fail "untagged entry missing for a non-personal profile"
+    return 1
+  fi
+}
+
+# No ~/.env_name and no --env-name exits 2 before any install.
+test_env_required() {
+  _home=$(new_home noenv) || return 1
+  _repo="$CASE_ROOT/repo.noenv"
+  new_repo "$_repo" "$BASE_MANIFEST
+.zsh/foo.conf" || return 1
+
+  NO_ENV=1
+  invoke_install "$_home" "$_repo" --apply --yes
+  if [ "$RC" -ne 2 ]; then
+    fail "missing env exited $RC (want 2): $ERR"
+    return 1
+  fi
+  if ! printf '%s\n' "$ERR" | strip_ansi | grep -Eq 'no env profile'; then
+    fail "no env-profile error: $ERR"
+    return 1
+  fi
+  if [ -e "$_home/.zsh/foo.conf" ]; then
+    fail "install wrote a file without an env profile"
+    return 1
   fi
 }
 
@@ -825,20 +1065,54 @@ test_env_fail_closed() {
   _repo="$CASE_ROOT/repo.envcomment"
   new_repo "$_repo" "$BASE_MANIFEST" || return 1
   write_file "$_home/.env_name" '# only a comment' || return 1
-  invoke_install "$_home" "$_repo" --only dotfiles --apply --yes
+  NO_ENV=1
+  invoke_install "$_home" "$_repo" --apply --yes
   if [ "$RC" -ne 2 ]; then fail "comment-only env exited $RC (want 2): $ERR"; return 1; fi
   if ! printf '%s\n' "$ERR" | strip_ansi | grep -Eq 'env name unreadable'; then
     fail "no unreadable-env error: $ERR"; return 1
   fi
 
   _home=$(new_home envbad) || return 1
-  invoke_install "$_home" "$REPO_ROOT" --only dotfiles --apply --yes --env-name nosuchenv
+  invoke_install "$_home" "$REPO_ROOT" --apply --yes --env-name nosuchenv
   if [ "$RC" -ne 2 ]; then fail "nosuchenv exited $RC (want 2): $ERR"; return 1; fi
   if ! combined_output | grep -Eq 'unknown env profile: nosuchenv \(valid: '; then
     fail "no unknown-profile error with valid list: $(combined_output | tr '\n' ' ')"; return 1
   fi
   if ! combined_output | grep -q 'primary_macos'; then
     fail "valid list missing personal profile: $(combined_output | tr '\n' ' ')"; return 1
+  fi
+}
+
+# First apply with --env-name seeds ~/.env_name only when absent; later applies
+# and dry-runs never create or overwrite it.
+test_env_seed() {
+  _home=$(new_home envseed) || return 1
+  _repo="$CASE_ROOT/repo.envseed"
+  new_repo "$_repo" "$BASE_MANIFEST
+.zsh/foo.conf" || return 1
+  write_file "$_repo/files/.zsh/env/other" 'other-env' || return 1
+
+  invoke_install "$_home" "$_repo" --apply --yes --env-name fixture
+  if [ "$RC" -ne 0 ]; then fail "apply exited $RC: $ERR"; return 1; fi
+  if [ ! -f "$_home/.env_name" ]; then fail "apply did not seed ~/.env_name"; return 1; fi
+  if [ "$(head -n 1 "$_home/.env_name")" != "fixture" ]; then
+    fail "seeded first line: $(head -n 1 "$_home/.env_name")"
+    return 1
+  fi
+
+  invoke_install "$_home" "$_repo" --apply --yes --env-name other
+  if [ "$RC" -ne 0 ]; then fail "second apply exited $RC: $ERR"; return 1; fi
+  if [ "$(cat "$_home/.env_name")" != "fixture" ]; then
+    fail "second apply overwrote ~/.env_name: $(cat "$_home/.env_name")"
+    return 1
+  fi
+
+  _fresh=$(new_home envseeddry) || return 1
+  invoke_install "$_fresh" "$_repo" --dry-run --env-name fixture
+  if [ "$RC" -ne 0 ]; then fail "dry-run exited $RC: $ERR"; return 1; fi
+  if [ -e "$_fresh/.env_name" ]; then
+    fail "dry-run seeded ~/.env_name"
+    return 1
   fi
 }
 
@@ -884,6 +1158,8 @@ run_test() {
     return
   }
   TEST_PATH_PREFIX=""
+  NO_ENV=""
+  TEST_ENV_NAME=""
   total=$((total + 1))
   if "$_name"; then
     printf 'PASS: %s\n' "$_name"
@@ -965,11 +1241,17 @@ run_test test_dest_dir_conflict
 run_test test_case_alias_prune
 run_test test_lock_lifecycle
 run_test test_nontty_apply
-run_test test_launcher_exec
+run_test test_symlink_entrypoint
 run_test test_real_repo
 run_test test_mount_parsing
-run_test test_update_backup
+run_test test_archive_on_update
+run_test test_archive_same_day
+run_test test_dry_run_no_archive
+run_test test_script_os_filter
+run_test test_personal_gate
+run_test test_env_required
 run_test test_env_fail_closed
+run_test test_env_seed
 run_test test_state_trust
 run_test test_new_scripts_syntax
 run_test test_ensure_repo_converges
