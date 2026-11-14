@@ -107,7 +107,7 @@ main() {
 
   echo
   echo "Reload tmux config: tmux source-file ~/.tmux.conf"
-  echo "Toggle sidebar: M-\\ (focus), C-M-\\ (show/hide in all windows)"
+  echo "Toggle sidebar: M-\\ (focus), M-| (show/hide in all windows)"
   echo "Restart any running agent so the OpenCode bridge loads."
 }
 

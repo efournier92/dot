@@ -1225,7 +1225,7 @@ test_tmux_config_parses() {
   HOME="$home" tmux -L "$sock" kill-server 2>/dev/null
   [ "$(printf '%s\n' "$hooks" | grep -c tmux_sidebar_unfocus)" -eq 3 ] || { fail "missing unfocus hooks"; return 1; }
   printf '%s\n' "$keys" | grep -q 'select-pane -l' || { fail "missing M-\\ focus binding"; return 1; }
-  printf '%s\n' "$keys" | grep -q 'toggle-all' || { fail "missing C-M-\\ toggle-all binding"; return 1; }
+  printf '%s\n' "$keys" | grep -q 'M-|.*toggle-all' || { fail "missing M-| toggle-all binding"; return 1; }
   return 0
 }
 
