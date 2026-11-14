@@ -9,7 +9,7 @@
 
 ## Overview
 
-This repo tracks the dotfiles and configuration I use across machines. The [`files/`](./files) directory holds the live dotfiles (`.vimrc`, `.tmux.conf`, `.zshenv`, `.gitconfig`, etc.), and the [`history/`](./history) directory contains dated snapshots of how this config has evolved over time.
+This repo tracks the dotfiles and configuration I use across machines. The [`files/`](./files) directory holds the live dotfiles (`.vimrc`, `.tmux.conf`, `.zshenv`, `.gitconfig`, etc.), the [`history/`](./history) directory contains dated snapshots of how those dotfiles have evolved over time, and the [`configs/`](./configs) directory holds dated exports from GUI apps.
 
 ## Installer
 
