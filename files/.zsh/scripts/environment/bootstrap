@@ -2,7 +2,7 @@
 # bootstrap.zsh — install files from docs/installer/manifest into $HOME.
 emulate -L zsh
 setopt no_unset no_extended_glob no_sh_word_split
-VERSION="2026-11-12.1"
+VERSION="2026-11-15.1"
 if [[ -z "$HOME" ]]; then
   print -P "%F{red}[x]%f HOME is not set — cannot determine target paths" >&2
   exit 1
@@ -433,6 +433,13 @@ _doctor() {
   print -r -- "doctor: $missing missing, $changed changed, $prune prunable"
   return 1
 }
+setup_tmux_plugins() {
+  local setup="$HOME/.zsh/scripts/environment/tmux_agent_setup"
+  [[ -x "$HOME/.tmux/plugins/tmux-agent-sidebar/bin/tmux-agent-sidebar" ]] && return 0
+  if (( ! APPLY )); then log_info "would run tmux_agent_setup"; return 0; fi
+  [[ -x "$setup" ]] || { log_warn "tmux_agent_setup missing: $setup"; return 0; }
+  "$setup" || log_warn "tmux_agent_setup failed. Rerun it manually."
+}
 _release_lock() { rm -f "$LOCK_DIR/pid"; rmdir "$LOCK_DIR" 2>/dev/null; }
 _acquire_lock() {
   _assert_dest "$STATE_DIR" "" || return 1
@@ -488,6 +495,7 @@ main() {
   (( APPLY )) && { _acquire_lock || exit 1; }
   [[ -d "$DOTFILES_DIR" ]] || { log_err "dotfiles repo missing: $DOTFILES_DIR"; return 1; }
   install_dotfiles || exit 1
+  setup_tmux_plugins
   log_ok "bootstrap complete (v$VERSION)"
 }
 trap '_release_lock' INT TERM
