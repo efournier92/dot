@@ -23,3 +23,8 @@ macos-titlebar-style = hidden
 ## Disable warning when closing a window
 confirm-close-surface = false
 
+
+# Input
+
+## Send Option as Alt so opt+s reaches Claude Code voice
+macos-option-as-alt = true
