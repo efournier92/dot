@@ -85,10 +85,6 @@ fi
 setopt GLOB_DOTS
 zstyle ':completion:*' extra-search-path .
 
-### Zoxide Enhanced cd
-
-eval "$(zoxide init --cmd cd zsh)"
-
 ### Eza Enhanced ls
 
 alias ls='eza --icons --group-directories-first'
