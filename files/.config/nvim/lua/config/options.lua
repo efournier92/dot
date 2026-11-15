@@ -23,3 +23,9 @@ vim.treesitter.start = function(bufnr, lang)
   end
   return ts_start(bufnr, lang)
 end
+
+-- No format on save. Format on demand with <leader>cf.
+vim.g.autoformat = false
+
+-- No UI animations (picker, windows, scroll).
+vim.g.snacks_animate = false

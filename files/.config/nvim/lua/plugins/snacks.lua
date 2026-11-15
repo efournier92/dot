@@ -6,16 +6,20 @@ return {
   priority = 1000,
   lazy = false,
   opts = {
+    -- Jumps happen instantly, as in Vim.
+    scroll = { enabled = false },
     picker = {
       enabled = true,
       sources = {
         files = {
           hidden = true,
           ignored = true,
+          exclude = { "build", ".gradle", "modules/*/bin" },
         },
         explorer = {
           hidden = true,
           ignored = true,
+          exclude = { "build", ".gradle", "modules/*/bin" },
         },
       },
     },
