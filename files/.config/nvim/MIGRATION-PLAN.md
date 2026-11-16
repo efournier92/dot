@@ -37,13 +37,13 @@ Evidence that the distro costs more than it gives:
 | vim-markdown | Markdown syntax, as in Vim |
 | lazysql | `<leader>db` |
 | nvim-lspconfig | Server configs only (`lsp/*.lua`), nothing auto-enabled |
-| mason.nvim | Installs jdtls, lua_ls, ruby-lsp, vtsls. Set `lazy = false`: PATH and `$MASON` (lombok jar) exist only after `mason.setup()` runs. |
+| mason.nvim | Installs jdtls, lua_ls, ruby-lsp, vtsls, pyright, ruff. Set `lazy = false`: PATH and `$MASON` (lombok jar) exist only after `mason.setup()` runs. |
 | nvim-jdtls | `jdt://` library sources, extract refactors, organize imports |
 | nvim-treesitter (`main`) | Parser installer only. Already on `main`. |
 
 Plus mini.icons for picker and explorer icons (decided). Snacks notifier stays on (decided).
 
-Dropped: LazyVim, blink.cmp, which-key, lualine, conform, mason-lspconfig, ts-comments, nvim-treesitter-textobjects, nvim-ts-autotag, mini.ai, trouble, grug-far, lazydev.
+Dropped: LazyVim, blink.cmp, which-key, lualine, conform, mason-lspconfig, ts-comments, nvim-treesitter-textobjects, nvim-ts-autotag, mini.ai, trouble, grug-far, lazydev, venv-selector (the pyright `on_init` venv lookup covers it).
 
 ## Built-ins that replace dropped plugins (verified in 0.12.6 runtime)
 
@@ -93,18 +93,18 @@ Neovim's own `runtime/ftplugin/markdown.lua` calls `vim.treesitter.start()`, not
 ## Keymaps to port
 
 Decided set: `<C-h/j/k/l>` window nav, `<S-h>`/`<S-l>` buffers, `<leader>bd`, `<leader>cf`, `<leader>ca`, `<leader>cr`, `<leader>cd`.
-Picker: `<leader><space>` smart (own), `<leader>ff` files, `<leader>/` grep, `<leader>fr` recent, `<leader>,` buffers, `<leader>e` explorer, `<leader>gg` lazygit, `<leader>sk` keymaps (replaces which-key for discovery).
-`<leader>ff`, `<leader>/`, `<leader>e` and `<leader>gg` pass `cwd = Snacks.git.get_root()`.
+Picker: `<leader><space>` grep at git root (own), `<leader>sf` files at git root (own), `<leader>ss` smart (own), `<leader>ff` files, `<leader>/` grep, `<leader>fr` recent, `<leader>,` buffers, `<leader>e` explorer, `<leader>gg` lazygit, `<leader>sk` keymaps (replaces which-key for discovery).
+`<leader><space>`, `<leader>sf`, `<leader>ff`, `<leader>/`, `<leader>e` and `<leader>gg` pass `cwd = Snacks.git.get_root()`.
 Today they open at the git root via LazyVim's root detection. Plain Snacks calls would use the cwd, which is wrong in the multi-repo Savvy workspace.
 Small LazyVim keys worth keeping: `<esc>` clears search highlight, `<leader>qq` quits all.
 Dropped on purpose: `<C-s>` save, `<leader>wd`, `<leader><tab>d`. Re-add in phase 6 if missed.
 Own keys copied as-is: `<leader>wt`, `<M-j>`/`<M-k>`, fugitive keys, `<leader>cy`, `<leader>db`.
-LSP on attach: the same set the on-demand wrapper covers today: `gd`, `gr`, `gI`, `gy`, `gD`, `K`, `gK`, `gai`, `gao`, `<leader>ca`, `<leader>cA`, `<leader>cr`, `<leader>ss`, `<leader>sS`. Built-in `gr*` keys need nothing.
+LSP on attach: the same set the on-demand wrapper covers today: `gd`, `gr`, `gI`, `gy`, `gD`, `K`, `gK`, `gai`, `gao`, `<leader>ca`, `<leader>cA`, `<leader>cr`, `<leader>sy` (symbols, moved off `<leader>ss`), `<leader>sS`. Built-in `gr*` keys need nothing.
 Java on jdtls attach: `<leader>co` organize imports, `<leader>cxv`/`cxc`/`cxm` extract variable, constant, method, `<leader>cgs` goto super. Today these come from LazyVim's java extra.
 
 ## On-demand LSP, native
 
-1. Call `vim.lsp.config()` for lua_ls, ruby_lsp, vtsls at startup. Never call `vim.lsp.enable()` at startup.
+1. Call `vim.lsp.config()` for lua_ls, ruby_lsp, vtsls, pyright, ruff at startup. Never call `vim.lsp.enable()` at startup.
 1. `<leader>cL` sets `vim.g.lsp_on`, calls `vim.lsp.enable()` for those servers, and reruns FileType on the buffer.
 1. `ftplugin/java.lua` calls `require("jdtls").start_or_attach()` only when `vim.g.lsp_on` is set.
 1. One `LspAttach` autocmd sets `gd`/`gr`/`gI`/`gy`, enables completion, and turns off inlay hints.
@@ -112,6 +112,28 @@ Java on jdtls attach: `<leader>co` organize imports, `<leader>cxv`/`cxc`/`cxm` e
    The keymap race disappears because our own `LspAttach` sets the buffer keys synchronously.
 1. Rewrite `has_server` over `vim.lsp.config[name].filetypes`. Today it calls `LazyVim.opts()`, which does not exist without LazyVim.
 1. Give lua_ls `workspace.library = { vim.env.VIMRUNTIME }`. Dropping lazydev otherwise flags `vim` as an undefined global when editing this config.
+1. Port pyright's `on_init` from `lua/plugins/python.lua` as is.
+   It sets `python.pythonPath` from `.venv`, `venv` or `.work/venv` under the root, since pyright finds no venv on its own.
+1. Turn off ruff's `hoverProvider` on attach, so `K` shows pyright's hover.
+   ruff is the only Python formatter, so `<leader>cf` needs no filter.
+
+## Python
+
+Shipped on the current LazyVim setup on 2026-11-15: the `lang.python` extra plus `lua/plugins/python.lua`.
+pyright over basedpyright: same engine, and basedpyright's default `recommended` mode floods the lightly typed wadsworth and savvy-breaker code.
+No venv is created for Docker: Docker runs only the app stack, and the tests run on the host.
+savvy-breaker uses `.work/venv` (`tools/run_local.sh`).
+wadsworth has no venv, so its imports stay unresolved until one exists.
+
+## Rust, deferred
+
+No Rust toolchain is installed and there is no use case yet. Cost: a toolchain over 600MB (unconfirmed estimate), 2 plugins, 2 parsers.
+When a use appears:
+
+1. `brew install rustup`, `rustup default stable`, `rustup component add rust-analyzer`.
+   rust-analyzer then matches the toolchain. Mason's copy is not needed.
+1. LazyVim: enable `lang.rust` and filter `codelldb` out of Mason `ensure_installed` in `disabled.lua`, since there is no DAP setup.
+1. Lean config: `vim.lsp.config()` for rust_analyzer from lspconfig, no rustaceanvim. Add the `rust` and `toml` parsers.
 
 ## Statusline options
 
@@ -171,9 +193,9 @@ Build in `~/.config/nvim-lean`, run with `NVIM_APPNAME=nvim-lean nvim`.
 1. Git: gitsigns, fugitive spec, the lazygit `e` custom command (Gvdiffsplit via `$NVIM --remote-expr`).
    Check: `<leader>GG` and `<leader>GB` open the diff tab. `<M-j>` follows quickfix.
 1. Reading extras: treesitter start per filetype minus markdown, vim-markdown, lazysql, file-reference key.
-   Check: highlighting in java, ruby, tsx. Markdown keeps Vim syntax. No E28 on Java.
+   Check: highlighting in java, ruby, tsx, python. Markdown keeps Vim syntax. No E28 on Java.
 1. LSP: lspconfig, mason, `lua/config/lsp.lua`.
-   Check: no server process after opening a file. `gd` cold jumps in TS (about 5s) and Ruby. `<leader>cf` formats.
+   Check: no server process after opening a file. `gd` cold jumps in TS (about 5s), Ruby, and Python into savvy-breaker's playwright under `.work/venv`. `<leader>cf` formats.
 1. Java: `ftplugin/java.lua`.
    Check: cold `gd` jumps in PVS within about 5s. `gd` on `KmsClient` opens a `jdt://` source. Touching a `build.gradle` triggers regeneration. `<leader>tt` runs. Measure jdtls RSS.
 1. Daily-drive for a week with `NVIM_APPNAME=nvim-lean`. Note every missing key.
