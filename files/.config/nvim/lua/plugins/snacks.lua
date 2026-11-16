@@ -42,6 +42,20 @@ return {
     {
       "<leader><space>",
       function()
+        Snacks.picker.grep({ cwd = Snacks.git.get_root() })
+      end,
+      desc = "Grep (Root Dir)",
+    },
+    {
+      "<leader>sf",
+      function()
+        Snacks.picker.files({ cwd = Snacks.git.get_root() })
+      end,
+      desc = "Find Files (Root Dir)",
+    },
+    {
+      "<leader>ss",
+      function()
         Snacks.picker.smart()
       end,
       desc = "Smart Find",

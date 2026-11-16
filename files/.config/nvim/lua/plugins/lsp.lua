@@ -110,7 +110,7 @@ for _, k in ipairs({
   { "<leader>cA", SYMBOLS, "Source Action" },
   { "<leader>cr", SYMBOLS, "Rename" },
   { "<leader>co", SYMBOLS, "Organize Imports" },
-  { "<leader>ss", SYMBOLS, "LSP Symbols" },
+  { "<leader>sy", SYMBOLS, "LSP Symbols" },
   { "<leader>sS", SYMBOLS, "LSP Workspace Symbols" },
 }) do
   local lhs, probe, desc = k[1], k[2], k[3]
@@ -132,6 +132,17 @@ return {
       opts.inlay_hints.enabled = false
       -- ruby_lsp already formats and lints with the project's own rubocop.
       opts.servers.rubocop = { enabled = false }
+      -- <leader>ss is Smart Find, so LSP Symbols moves to <leader>sy.
+      local keys = opts.servers["*"].keys
+      table.insert(keys, { "<leader>ss", false })
+      table.insert(keys, {
+        "<leader>sy",
+        function()
+          Snacks.picker.lsp_symbols({ filter = LazyVim.config.kind_filter })
+        end,
+        desc = "LSP Symbols",
+        has = "documentSymbol",
+      })
       return opts
     end,
     keys = lazy_keys,
