@@ -1,12 +1,16 @@
 # Repo-relative source paths installed into $HOME (source -> destination when they differ).
 .claude/CLAUDE.md
+.claude/keybindings.json
 .claude/statusline-command.sh
 .config/ghostty/config
 .config/git/ignore
 .config/lazygit/config.yml
 .config/nvim/.neoconf.json
 .config/nvim/LICENSE
+.config/nvim/MIGRATION-PLAN.md
 .config/nvim/README.md
+.config/nvim/after/ftplugin/java.lua
+.config/nvim/gradle/eclipse-init.gradle
 .config/nvim/init.lua
 .config/nvim/lazy-lock.json
 .config/nvim/lazyvim.json
@@ -15,12 +19,15 @@
 .config/nvim/lua/config/lazy.lua
 .config/nvim/lua/config/options.lua
 .config/nvim/lua/plugins/blink.lua
+.config/nvim/lua/plugins/disabled.lua
 .config/nvim/lua/plugins/fugitive.lua
+.config/nvim/lua/plugins/java.lua
 .config/nvim/lua/plugins/kanagawa.lua
 .config/nvim/lua/plugins/lazysql.lua
 .config/nvim/lua/plugins/lsp.lua
 .config/nvim/lua/plugins/lualine.lua
 .config/nvim/lua/plugins/markdown.lua
+.config/nvim/lua/plugins/python.lua
 .config/nvim/lua/plugins/snacks.lua
 .config/nvim/lua/plugins/telescope.lua
 .config/nvim/lua/user/file-reference-to-clipboard.lua

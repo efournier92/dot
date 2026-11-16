@@ -1210,6 +1210,22 @@ test_ensure_repo_converges() {
   return 0
 }
 
+# Every file tracked under files/ must be a manifest source, so a new config
+# file cannot silently skip bootstrap. Untracked files only reach HOME once
+# committed, which this check enforces at commit time.
+test_manifest_coverage() {
+  local exempt='.env_name.example
+.zsh/.secrets.example
+.zsh/scripts/environment/bootstrap' missing
+  command -v git >/dev/null 2>&1 || { printf '  skip: git not installed\n'; return 0; }
+  sed -e '/^[[:space:]]*$/d' -e '/^#/d' -e 's/\r$//' -e 's/[[:space:]]@[^[:space:]]*//g' -e 's/ -> .*//' \
+    "$REPO_ROOT/docs/installer/manifest" | sort -u >"$CASE_ROOT/sources"
+  git -C "$REPO_ROOT" ls-files -- files | sed 's|^files/||' | sort -u >"$CASE_ROOT/tracked"
+  missing=$(comm -23 "$CASE_ROOT/tracked" "$CASE_ROOT/sources" | grep -vxF -f <(printf '%s\n' "$exempt"))
+  [ -z "$missing" ] || { fail "tracked but not in manifest: $(printf '%s ' $missing)"; return 1; }
+  return 0
+}
+
 test_tmux_config_parses() {
   command -v tmux >/dev/null 2>&1 || { printf '  skip: tmux not installed\n'; return 0; }
   local sock="dot-test-$$-$RANDOM" home="$CASE_ROOT/home-tmux" keys
@@ -1256,6 +1272,7 @@ run_test test_state_trust
 run_test test_new_scripts_syntax
 run_test test_ensure_repo_converges
 run_test test_tmux_config_parses
+run_test test_manifest_coverage
 
 if [ "$failures" -ne 0 ]; then
   printf 'RESULT: FAIL (%d/%d passed)\n' "$((total - failures))" "$total"
