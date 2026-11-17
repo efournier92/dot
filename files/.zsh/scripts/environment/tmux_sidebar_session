@@ -1,0 +1,90 @@
+#!/bin/bash
+
+#----------------
+# Name          : tmux_sidebar_session
+# Description   : Keeps the agent sidebar open or closed across a whole tmux session.
+# Author        : E Fournier
+# Dependencies  : tmux, tmux-agent-sidebar
+# Example Usage : tmux_sidebar_session focus <pane_id>
+#                 tmux_sidebar_session toggle <pane_id>
+#                 tmux_sidebar_session sync <window_id>
+#----------------
+
+set -u
+
+# The plugin's toggle-all spans every session on the server.
+# State lives in the session option @sidebar_open instead.
+
+bin=$(tmux show -gv @agent_sidebar_bin 2>/dev/null)
+[ -n "$bin" ] || exit 0
+
+window_sidebar() {
+	tmux list-panes -t "$1" -F '#{pane_id} #{@pane_role}' | awk '$2 == "sidebar" {print $1; exit}'
+}
+
+open_in_window() {
+	local path
+	path=$(tmux display-message -p -t "$1" '#{pane_current_path}')
+	"$bin" toggle --create-only "$1" "${path:-$HOME}"
+}
+
+open_session() {
+	local window
+	tmux set -q -t "$1" @sidebar_open on
+	for window in $(tmux list-windows -t "$1" -F '#{window_id}'); do
+		open_in_window "$window"
+	done
+}
+
+focus() {
+	local pane window other sidebar
+	pane=${1:-}
+	[ -n "$pane" ] || exit 0
+	window=$(tmux display-message -p -t "$pane" '#{window_id}')
+
+	if [ "$(tmux display-message -p -t "$pane" '#{@pane_role}')" = sidebar ]; then
+		tmux select-pane -t "$window" -l 2>/dev/null && exit 0
+		other=$(tmux list-panes -t "$window" -F '#{pane_id} #{@pane_role}' | awk '$2 != "sidebar" {print $1; exit}')
+		[ -n "$other" ] && tmux select-pane -t "$other"
+		exit 0
+	fi
+
+	sidebar=$(window_sidebar "$window")
+	if [ -z "$sidebar" ]; then
+		open_session "$(tmux display-message -p -t "$pane" '#{session_id}')"
+		sidebar=$(window_sidebar "$window")
+	fi
+	[ -n "$sidebar" ] && tmux select-pane -t "$sidebar"
+	exit 0
+}
+
+toggle() {
+	local session sidebars
+	[ -n "${1:-}" ] || exit 0
+	session=$(tmux display-message -p -t "$1" '#{session_id}')
+	sidebars=$(tmux list-panes -s -t "$session" -F '#{pane_id} #{@pane_role}' | awk '$2 == "sidebar" {print $1}')
+	if [ -z "$sidebars" ]; then
+		open_session "$session"
+		exit 0
+	fi
+	tmux set -q -t "$session" @sidebar_open off
+	for sidebar in $sidebars; do
+		tmux kill-pane -t "$sidebar"
+	done
+	exit 0
+}
+
+sync() {
+	local window
+	window=${1:-}
+	[ -n "$window" ] || exit 0
+	[ "$(tmux display-message -p -t "$window" '#{@sidebar_open}')" = on ] || exit 0
+	open_in_window "$window"
+}
+
+case "${1:-}" in
+focus) focus "${2:-}" ;;
+toggle) toggle "${2:-}" ;;
+sync) sync "${2:-}" ;;
+*) echo "usage: tmux_sidebar_session focus <pane_id>|toggle <pane_id>|sync <window_id>" >&2; exit 1 ;;
+esac

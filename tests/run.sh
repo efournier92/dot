@@ -1240,8 +1240,9 @@ test_tmux_config_parses() {
   hooks=$(HOME="$home" tmux -L "$sock" show-hooks -g 2>/dev/null)
   HOME="$home" tmux -L "$sock" kill-server 2>/dev/null
   [ "$(printf '%s\n' "$hooks" | grep -c tmux_sidebar_unfocus)" -eq 3 ] || { fail "missing unfocus hooks"; return 1; }
-  printf '%s\n' "$keys" | grep -q 'select-pane -l' || { fail "missing M-\\ focus binding"; return 1; }
-  printf '%s\n' "$keys" | grep -q 'M-|.*toggle-all' || { fail "missing M-| toggle-all binding"; return 1; }
+  printf '%s\n' "$hooks" | grep -q 'after-new-window.*tmux_sidebar_session sync' || { fail "missing sidebar sync hook"; return 1; }
+  printf '%s\n' "$keys" | grep -q 'M-\\\\.*tmux_sidebar_session focus' || { fail "missing M-\\ focus binding"; return 1; }
+  printf '%s\n' "$keys" | grep -q 'M-|.*tmux_sidebar_session toggle' || { fail "missing M-| toggle binding"; return 1; }
   return 0
 }
 
