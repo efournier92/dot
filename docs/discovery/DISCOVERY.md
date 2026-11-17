@@ -5,6 +5,8 @@ Scope tokens: tmux/agents, zsh/bootstrap, zsh/prompt, macos/apps
 
 ## Entries
 
+- D-20261116-02 | 2026-11-16 | [decision] | tmux/agents | Sidebar unfocus runs as synchronous in-tmux hooks that return to the last pane. Supersedes D-20261112-11 and its script | `files/.tmux.conf:300`
+- D-20261116-01 | 2026-11-16 | [decision] | tmux/agents | Sidebar open or closed is per session, read from the panes. Alt+backslash opens and focuses it, Alt+pipe toggles it, new windows follow | `files/.zsh/scripts/environment/tmux_sidebar_session`
 - D-20261113-02 | 2026-11-13 | [decision] | tmux/agents | Dropped Option+J/K/L session cycling. The sesh picker on Option+Space is the only session switch, freeing keys for the agent sidebar toggle | files/.tmux.conf:242
 - D-20261113-01 | 2026-11-13 | [decision] | tmux/agents | Show/hide in all windows moved to Alt+pipe so both toggles sit on one physical key. Alt+backslash still focuses the sidebar | files/.tmux.conf:272
 - D-20261112-16 | 2026-11-12 | [find] | zsh/bootstrap | `_archive_path` fixes the date dir once at startup, so a midnight-spanning apply archives into the start date | `files/.zsh/scripts/environment/bootstrap:168`

@@ -1173,7 +1173,7 @@ test_new_scripts_syntax() {
   local rel
   for rel in \
     files/.zsh/scripts/environment/tmux_agent_setup \
-    files/.zsh/scripts/environment/tmux_sidebar_unfocus; do
+    files/.zsh/scripts/environment/tmux_sidebar_session; do
     [ -f "$REPO_ROOT/$rel" ] || { fail "missing script: $rel"; return 1; }
     bash -n "$REPO_ROOT/$rel" || { fail "syntax error: $rel"; return 1; }
     [ -x "$REPO_ROOT/$rel" ] || { fail "not executable: $rel"; return 1; }
@@ -1239,7 +1239,8 @@ test_tmux_config_parses() {
   local hooks
   hooks=$(HOME="$home" tmux -L "$sock" show-hooks -g 2>/dev/null)
   HOME="$home" tmux -L "$sock" kill-server 2>/dev/null
-  [ "$(printf '%s\n' "$hooks" | grep -c tmux_sidebar_unfocus)" -eq 3 ] || { fail "missing unfocus hooks"; return 1; }
+  printf '%s\n' "$hooks" | grep -q 'session-window-changed.*select-pane -l' || { fail "missing window unfocus hook"; return 1; }
+  printf '%s\n' "$hooks" | grep -q 'client-session-changed.*select-pane -l' || { fail "missing session unfocus hook"; return 1; }
   printf '%s\n' "$hooks" | grep -q 'after-new-window.*tmux_sidebar_session sync' || { fail "missing sidebar sync hook"; return 1; }
   printf '%s\n' "$keys" | grep -q 'M-\\\\.*tmux_sidebar_session focus' || { fail "missing M-\\ focus binding"; return 1; }
   printf '%s\n' "$keys" | grep -q 'M-|.*tmux_sidebar_session toggle' || { fail "missing M-| toggle binding"; return 1; }

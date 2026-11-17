@@ -13,7 +13,7 @@
 set -u
 
 # The plugin's toggle-all spans every session on the server.
-# State lives in the session option @sidebar_open instead.
+# A session is open when any of its panes is a sidebar.
 
 bin=$(tmux show -gv @agent_sidebar_bin 2>/dev/null)
 [ -n "$bin" ] || exit 0
@@ -30,7 +30,6 @@ open_in_window() {
 
 open_session() {
 	local window
-	tmux set -q -t "$1" @sidebar_open on
 	for window in $(tmux list-windows -t "$1" -F '#{window_id}'); do
 		open_in_window "$window"
 	done
@@ -67,7 +66,6 @@ toggle() {
 		open_session "$session"
 		exit 0
 	fi
-	tmux set -q -t "$session" @sidebar_open off
 	for sidebar in $sidebars; do
 		tmux kill-pane -t "$sidebar"
 	done
@@ -78,7 +76,6 @@ sync() {
 	local window
 	window=${1:-}
 	[ -n "$window" ] || exit 0
-	[ "$(tmux display-message -p -t "$window" '#{@sidebar_open}')" = on ] || exit 0
 	open_in_window "$window"
 }
 
